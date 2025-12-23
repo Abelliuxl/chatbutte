@@ -259,6 +259,10 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chat-header-controls {
@@ -764,15 +768,22 @@ body {
     display: grid !important;
   }
 
-  /* 窄屏时标题和模型选择可以换行 */
+  /* 窄屏时标题和模型选择保持在一行 */
   .topic-title-row {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 12px;
   }
 
   .chat-header-controls {
-    order: -1;
-    width: 100%;
+    flex-shrink: 0;
+  }
+
+  .topic-title-row h2 {
+    min-width: 0;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .composer-main {
@@ -811,8 +822,9 @@ body {
     flex-wrap: nowrap;
   }
 
-  /* 窄屏时隐藏发送提示 */
-  .composer-right .hint {
+  /* 窄屏时隐藏发送提示和用户提示词 */
+  .composer-right .hint,
+  .topic-info p {
     display: none;
   }
 }
