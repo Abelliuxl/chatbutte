@@ -679,6 +679,14 @@ function initListeners() {
     elements.sidebarOverlay.classList.remove('open');
   });
 
+  // 当窗口宽度变足够大时，自动关闭移动端侧栏状态
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 980) {
+      elements.sidebar.classList.remove('open');
+      elements.sidebarOverlay.classList.remove('open');
+    }
+  });
+
   window.addEventListener('click', (event) => {
     if (event.target === elements.settingsModal) {
       closeModal(elements.settingsModal);

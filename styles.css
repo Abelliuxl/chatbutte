@@ -91,8 +91,9 @@ body {
   z-index: 102;
 }
 
+/* 默认隐藏 menu toggle（宽屏不需要） */
 .menu-toggle {
-  display: none;
+  display: none !important;
 }
 
 .sidebar-overlay {
@@ -639,8 +640,9 @@ body {
     display: grid;
   }
 
+  /* 窄屏时显示 menu toggle 按钮 */
   .menu-toggle {
-    display: grid;
+    display: grid !important;
   }
 
   .sidebar-section {
