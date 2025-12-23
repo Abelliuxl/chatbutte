@@ -130,9 +130,8 @@ function renderTopics() {
     }
 
     const title = document.createElement('h4');
+    title.className = 'topic-title';
     title.textContent = topic.name;
-    const prompt = document.createElement('p');
-    prompt.textContent = topic.prompt ? topic.prompt.slice(0, 60) + (topic.prompt.length > 60 ? '...' : '') : '未设置系统提示词';
 
     const actions = document.createElement('div');
     actions.className = 'topic-actions';
@@ -153,7 +152,7 @@ function renderTopics() {
     });
 
     actions.append(editBtn, deleteBtn);
-    card.append(title, prompt, actions);
+    card.append(title, actions);
     card.addEventListener('click', () => {
       state.activeTopicId = topic.id;
       saveState();
