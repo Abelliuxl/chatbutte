@@ -68,6 +68,10 @@ const elements = {
   sidebarClose: document.getElementById('sidebarClose'),
   sidebarOverlay: document.getElementById('sidebarOverlay'),
   sidebar: document.querySelector('.sidebar'),
+  exportBtn: document.getElementById('exportBtn'),
+  importBtn: document.getElementById('importBtn'),
+  importFileInput: document.getElementById('importFileInput'),
+  resetBtn: document.getElementById('resetBtn'),
 };
 
 let state = loadState();
@@ -308,10 +312,18 @@ function renderSettings() {
 }
 
 function updateSendHint() {
+  // 检测操作系统平台
+  const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+
   const map = {
-    enter: 'Enter 发送 · Ctrl/Cmd + Enter 换行',
-    ctrl: 'Ctrl + Enter 发送 · Enter/Cmd + Enter 换行',
-    cmd: 'Cmd + Enter 发送 · Enter/Ctrl + Enter 换行',
+    enter: isMac
+      ? 'Enter 发送 · Cmd/Ctrl/Option + Enter 换行'
+      : 'Enter 发送 · Ctrl/Alt + Enter 换行',
+    cmd: 'Cmd + Enter 发送 · 其他组合键换行',
+    ctrl: 'Ctrl + Enter 发送 · 其他组合键换行',
+    alt: isMac
+      ? 'Option + Enter 发送 · 其他组合键换行'
+      : 'Alt + Enter 发送 · 其他组合键换行',
   };
   elements.sendHint.textContent = map[state.settings.sendKey] || '';
 }
@@ -689,18 +701,33 @@ function handleProfileSubmit(event) {
 
 function handleKeydown(event) {
   if (event.key !== 'Enter') return;
+  // 中文字符输入过程中不处理
+  if (event.isComposing) return;
+
   const sendKey = state.settings.sendKey;
   const isCtrl = event.ctrlKey;
-  const isMeta = event.metaKey;
+  const isMeta = event.metaKey; // Mac Cmd
+  const isAlt = event.altKey; // Mac Option / Windows Alt
+  const hasModifier = isCtrl || isMeta || isAlt;
 
   const shouldSend =
-    (sendKey === 'enter' && !isCtrl && !isMeta) ||
-    (sendKey === 'ctrl' && isCtrl) ||
-    (sendKey === 'cmd' && isMeta);
+    (sendKey === 'enter' && !hasModifier) ||
+    (sendKey === 'ctrl' && isCtrl && !isMeta && !isAlt) ||
+    (sendKey === 'cmd' && isMeta && !isCtrl && !isAlt) ||
+    (sendKey === 'alt' && isAlt && !isCtrl && !isMeta);
 
   if (shouldSend) {
     event.preventDefault();
     sendMessage();
+  } else {
+    // 其他情况都插入换行符
+    event.preventDefault();
+    const textarea = event.target;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const value = textarea.value;
+    textarea.value = value.slice(0, start) + '\n' + value.slice(end);
+    textarea.selectionStart = textarea.selectionEnd = start + 1;
   }
 }
 
@@ -764,6 +791,27 @@ function initListeners() {
     saveState();
   });
 
+  // 导出数据按钮
+  elements.exportBtn.addEventListener('click', exportData);
+
+  // 导入数据按钮
+  elements.importBtn.addEventListener('click', () => {
+    elements.importFileInput.click();
+  });
+
+  // 文件选择后执行导入
+  elements.importFileInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      importData(file);
+      // 重置 input 以便可以重复导入同一文件
+      elements.importFileInput.value = '';
+    }
+  });
+
+  // 一键重置按钮
+  elements.resetBtn.addEventListener('click', resetData);
+
   elements.menuToggle.addEventListener('click', () => {
     elements.sidebar.classList.add('open');
     elements.sidebarOverlay.classList.add('open');
@@ -801,6 +849,66 @@ function boot() {
   ensureActiveSelections();
   render();
   initListeners();
+}
+
+// 导出数据为 JSON 文件
+function exportData() {
+  const dataStr = JSON.stringify(state, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+  a.download = `chatbutte-backup-${timestamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// 导入数据从 JSON 文件
+function importData(file) {
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      const imported = JSON.parse(event.target.result);
+
+      // 验证导入的数据结构
+      if (!imported || typeof imported !== 'object') {
+        alert('导入失败：文件格式不正确');
+        return;
+      }
+
+      // 合并导入的数据，保留默认结构
+      state = {
+        ...structuredClone(defaultState),
+        ...imported,
+        settings: { ...structuredClone(defaultState.settings), ...(imported.settings || {}) },
+        messagesByTopic: imported.messagesByTopic || {},
+      };
+
+      saveState();
+      render();
+      alert('数据导入成功！');
+    } catch (error) {
+      alert('导入失败：JSON 解析错误\n' + error.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// 一键重置所有数据
+function resetData() {
+  if (!confirm('确定要重置所有数据吗？\n\n此操作将清空所有聊天记录、话题和模型配置，恢复到初始状态。\n此操作不可撤销！')) {
+    return;
+  }
+  if (!confirm('再次确认：真的要删除所有数据吗？')) {
+    return;
+  }
+  localStorage.removeItem(STORAGE_KEY);
+  state = structuredClone(defaultState);
+  render();
+  alert('数据已重置，页面已恢复到初始状态。');
 }
 
 boot();

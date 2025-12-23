@@ -578,7 +578,8 @@ body {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(21, 18, 15, 0.45);
+  background: rgba(29, 29, 31, 0.5);
+  backdrop-filter: blur(4px);
   display: none;
   align-items: center;
   justify-content: center;
@@ -591,13 +592,13 @@ body {
 }
 
 .modal-content {
-  width: min(720px, 90vw);
+  width: min(680px, 90vw);
   max-height: 90vh;
   overflow-y: auto;
   background: #fff;
   border-radius: 0;
-  padding: 20px;
-  box-shadow: var(--shadow);
+  padding: 28px 32px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12);
   animation: popIn 0.3s ease;
 }
 
@@ -605,38 +606,67 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .modal-header h3 {
   margin: 0;
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--primary);
 }
 
 .modal-body {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 28px;
 }
 
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .section-title {
-  font-size: 13px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
   color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 
 .card {
-  padding: 16px;
+  padding: 18px 20px;
   border-radius: 0;
-  border: none;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: #fafafa;
+  transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* 居中的卡片（用于重置按钮） */
+.card-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 20px;
+  border-color: rgba(159, 45, 31, 0.3);
+  background: linear-gradient(135deg, #fff8f7, #fff);
+}
+
+.card-center .ghost-btn {
+  font-size: 15px;
+  padding: 10px 20px;
+  font-weight: 600;
+  border: 1px solid rgba(159, 45, 31, 0.4);
 }
 
 .form-card {
@@ -648,18 +678,25 @@ body {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+}
+
+.field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
 }
 
 .field input,
 .field textarea,
 .field select {
-  padding: 10px 12px;
+  padding: 11px 14px;
   border-radius: 0;
   border: 1px solid var(--border);
   font-family: inherit;
   font-size: 14px;
   transition: all 0.2s ease;
+  background: #fff;
 }
 
 .field input:focus,
@@ -667,17 +704,71 @@ body {
 .field select:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.1);
+  box-shadow: 0 0 0 3px rgba(29, 29, 31, 0.08);
+  background: #fff;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: #b0b0b5;
 }
 
 .field textarea {
   resize: vertical;
+  line-height: 1.5;
+}
+
+/* Range slider wrapper */
+.range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range-wrap input[type="range"] {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.range-wrap input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.range-wrap input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.range-wrap span {
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--primary);
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 12px;
+  margin-top: 8px;
 }
 
 .profile-list {
@@ -688,18 +779,39 @@ body {
 .profile-item {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
   align-items: center;
+  padding: 14px 16px;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: #fff;
+  transition: box-shadow 0.2s ease;
+}
+
+.profile-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.profile-item > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-item > div:first-child > div:first-child {
+  font-weight: 500;
+  color: var(--primary);
+  margin-bottom: 4px;
 }
 
 .profile-meta {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
 }
 
 .muted {
   font-size: 12px;
   color: var(--muted);
+  line-height: 1.4;
 }
 
 @keyframes popIn {
