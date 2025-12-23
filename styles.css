@@ -245,14 +245,19 @@ body {
 .topic-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   margin-bottom: 6px;
+}
+
+.topic-title-row .menu-toggle {
+  flex-shrink: 0;
 }
 
 .topic-info h2 {
   margin: 0;
   font-size: 24px;
+  flex: 1;
+  min-width: 0;
 }
 
 .topic-info p {
@@ -778,9 +783,7 @@ body {
     flex-shrink: 0;
   }
 
-  .topic-title-row h2 {
-    min-width: 0;
-    flex: 1;
+  .topic-info h2 {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
