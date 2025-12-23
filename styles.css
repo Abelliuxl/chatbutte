@@ -23,7 +23,7 @@ body {
   font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
   color: var(--text);
   background: var(--bg);
-  min-height: 100vh;
+  height: 100vh;
   overflow: hidden;
   display: flex;
   gap: 20px;
@@ -72,6 +72,8 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -219,14 +221,13 @@ body {
 
 .chat {
   flex: 1;
-  height: 100%;
+  min-height: 0;
   background: rgba(255, 255, 255, 0.9);
   border-radius: 20px;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 0;
   box-shadow: var(--shadow);
   border: none;
   backdrop-filter: blur(12px);
@@ -234,15 +235,23 @@ body {
 }
 
 .chat-header {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 20px;
-  align-items: center;
   flex: 0 0 auto;
 }
 
+.topic-info {
+  width: 100%;
+}
+
+.topic-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
 .topic-info h2 {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 24px;
 }
 
@@ -252,50 +261,8 @@ body {
   font-size: 13px;
 }
 
-.chat-controls {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.control {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.control label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.control input,
-.control select {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 6px 10px;
-  font-family: inherit;
-  font-size: 13px;
-  background: #fff;
-  transition: all 0.2s ease;
-}
-
-.control input:focus,
-.control select:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.1);
-}
-
-.range-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.chat-header-controls {
+  flex-shrink: 0;
 }
 
 .messages {
@@ -319,6 +286,10 @@ body {
   word-break: break-word;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
   animation: popIn 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
 }
 
 .message.user {
@@ -366,7 +337,8 @@ body {
   margin-top: 0;
 }
 
-.message > *:last-child {
+/* 复制按钮是最后一个子元素，不需要 margin-bottom */
+.message > .message-copy-btn {
   margin-bottom: 0;
 }
 
@@ -379,14 +351,82 @@ body {
   margin-top: 8px;
 }
 
+/* 消息内容容器 */
+.message-content {
+  flex: 1;
+}
+
+/* 复制按钮 */
+.message-copy-btn {
+  position: absolute;
+  bottom: -28px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: opacity 0.3s ease 1s;
+  opacity: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+  z-index: 10;
+}
+
+/* 用户消息的复制按钮靠右对齐 */
+.message.user .message-copy-btn {
+  right: 0;
+  left: auto;
+}
+
+/* 鼠标在消息上时显示按钮 */
+.message:hover .message-copy-btn {
+  opacity: 1;
+  transition: opacity 0.3s ease 0.1s;
+}
+
+/* 鼠标在按钮上时保持显示 */
+.message-copy-btn:hover {
+  opacity: 1;
+  transition: opacity 0s;
+}
+
+.message-copy-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.message.user .message-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.message-copy-btn.copied {
+  color: #10b981;
+}
+
+.message-copy-btn.copied:hover {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.message-copy-btn svg {
+  flex-shrink: 0;
+}
+
+.message-copy-btn span {
+  white-space: nowrap;
+}
+
 .composer {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #fff;
-  border-radius: 16px;
-  padding: 16px;
-  border: 1px solid var(--border);
+  padding: 0;
   flex: 0 0 auto;
 }
 
@@ -412,6 +452,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: nowrap;
 }
 
 .composer-left {
@@ -419,6 +460,11 @@ body {
   align-items: center;
   gap: 10px;
   flex: 1;
+  min-width: 0;
+}
+
+.composer-left .ghost-btn {
+  flex-shrink: 0;
 }
 
 .composer-right {
@@ -689,7 +735,24 @@ body {
 
   .app {
     width: 100%;
-    padding: 20px;
+    padding: 0;
+    height: 100vh;
+  }
+
+  /* 窄屏时移除多余的分块感 */
+  .chat {
+    background: transparent;
+    border-radius: 0;
+    padding: 16px;
+    box-shadow: none;
+    border: none;
+    backdrop-filter: none;
+  }
+
+  .messages {
+    background: transparent;
+    border-radius: 0;
+    padding: 8px;
   }
 
   .sidebar-close {
@@ -701,22 +764,23 @@ body {
     display: grid !important;
   }
 
-  .chat {
-    min-height: 70vh;
-  }
-
-  .chat-header {
-    grid-template-columns: auto 1fr;
+  /* 窄屏时标题和模型选择可以换行 */
+  .topic-title-row {
+    flex-wrap: wrap;
     gap: 12px;
   }
 
+  .chat-header-controls {
+    order: -1;
+    width: 100%;
+  }
+
   .composer-main {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: nowrap;
   }
 
   .composer-left {
-    justify-content: space-between;
+    gap: 8px;
   }
 }
 
@@ -725,12 +789,13 @@ body {
     overflow: auto;
   }
 
-  .app {
-    padding: 16px;
+  .chat {
+    padding: 12px;
   }
 
   .messages {
     max-height: none;
+    padding: 4px;
   }
 
   .topic-card {
@@ -738,6 +803,16 @@ body {
   }
 
   .composer-left {
-    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* 超窄屏时也确保按钮不换行 */
+  .composer-main {
+    flex-wrap: nowrap;
+  }
+
+  /* 窄屏时隐藏发送提示 */
+  .composer-right .hint {
+    display: none;
   }
 }

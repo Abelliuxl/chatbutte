@@ -194,7 +194,55 @@ function createMessageBubble(message) {
   if (message.role === 'error') {
     bubble.classList.add('error');
   }
-  bubble.innerHTML = renderMarkdown(message.content || '').trim();
+
+  // 消息内容容器
+  const contentWrapper = document.createElement('div');
+  contentWrapper.className = 'message-content';
+  contentWrapper.innerHTML = renderMarkdown(message.content || '').trim();
+  bubble.appendChild(contentWrapper);
+
+  // 添加复制按钮（error 消息也显示）
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'message-copy-btn';
+  copyBtn.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+    <span>复制</span>
+  `;
+  copyBtn.title = '复制消息';
+
+  // 复制按钮点击事件
+  copyBtn.addEventListener('click', async () => {
+    const text = message.content || '';
+    try {
+      await navigator.clipboard.writeText(text);
+      // 显示复制成功状态
+      copyBtn.classList.add('copied');
+      copyBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span>已复制</span>
+      `;
+      // 2秒后恢复原状
+      setTimeout(() => {
+        copyBtn.classList.remove('copied');
+        copyBtn.innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span>复制</span>
+        `;
+      }, 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+  });
+
+  bubble.appendChild(copyBtn);
   return bubble;
 }
 
@@ -305,7 +353,57 @@ function updateMessageContent(topicId, messageId, content) {
   saveState();
   const bubble = elements.messages.querySelector(`[data-message-id=\"${messageId}\"]`);
   if (bubble) {
-    bubble.innerHTML = renderMarkdown(content);
+    const contentWrapper = bubble.querySelector('.message-content');
+    if (contentWrapper) {
+      contentWrapper.innerHTML = renderMarkdown(content);
+    } else {
+      // 如果旧消息没有 message-content 包装器（向后兼容），重新创建整个气泡
+      bubble.innerHTML = '';
+      const newContentWrapper = document.createElement('div');
+      newContentWrapper.className = 'message-content';
+      newContentWrapper.innerHTML = renderMarkdown(content);
+      bubble.appendChild(newContentWrapper);
+
+      // 添加复制按钮
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'message-copy-btn';
+      copyBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        <span>复制</span>
+      `;
+      copyBtn.title = '复制消息';
+
+      copyBtn.addEventListener('click', async () => {
+        const text = content || '';
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.classList.add('copied');
+          copyBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span>已复制</span>
+          `;
+          setTimeout(() => {
+            copyBtn.classList.remove('copied');
+            copyBtn.innerHTML = `
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>复制</span>
+            `;
+          }, 2000);
+        } catch (err) {
+          console.error('复制失败:', err);
+        }
+      });
+
+      bubble.appendChild(copyBtn);
+    }
     elements.messages.scrollTop = elements.messages.scrollHeight;
   }
 }
