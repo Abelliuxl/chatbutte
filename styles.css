@@ -459,8 +459,8 @@ body {
 }
 
 #messageInput:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.1);
+  border-color: #007aff;
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
 }
 
 .composer-main {
@@ -514,8 +514,8 @@ body {
 
 .control-inline select:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.1);
+  border-color: #007aff;
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
 }
 
 .hint {
@@ -703,8 +703,8 @@ body {
 .field textarea:focus,
 .field select:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(29, 29, 31, 0.08);
+  border-color: #007aff;
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
   background: #fff;
 }
 
