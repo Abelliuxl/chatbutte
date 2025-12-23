@@ -106,6 +106,9 @@ function ensureActiveSelections() {
 function openModal(modal) {
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
+  // 打开 modal 时自动关闭 sidebar
+  elements.sidebar.classList.remove('open');
+  elements.sidebarOverlay.classList.remove('open');
 }
 
 function closeModal(modal) {

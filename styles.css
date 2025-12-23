@@ -407,10 +407,53 @@ body {
   box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.1);
 }
 
-.composer-actions {
+.composer-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.composer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.control-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-inline label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.control-inline select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  background: #fff;
+  transition: all 0.2s ease;
+}
+
+.control-inline select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(30, 41, 59, 0.1);
 }
 
 .hint {
@@ -478,7 +521,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  z-index: 101;
+  z-index: 200;
 }
 
 .modal.open {
@@ -666,6 +709,15 @@ body {
     grid-template-columns: auto 1fr;
     gap: 12px;
   }
+
+  .composer-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .composer-left {
+    justify-content: space-between;
+  }
 }
 
 @media (max-width: 640px) {
@@ -683,5 +735,9 @@ body {
 
   .topic-card {
     min-width: 200px;
+  }
+
+  .composer-left {
+    flex-wrap: wrap;
   }
 }
