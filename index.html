@@ -15,35 +15,37 @@
     <div class="bg-orb orb-2"></div>
     <div class="bg-grid"></div>
 
+    <aside class="sidebar">
+      <button class="icon-btn sidebar-close" id="sidebarClose" title="关闭话题列表">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <div class="brand">
+        <span class="brand-mark">C</span>
+        <div>
+          <div class="brand-title">Chatbutte</div>
+          <div class="brand-sub">LLM 工作台</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-header">
+          <h3>子话题</h3>
+          <button class="icon-btn" id="addTopicBtn" title="新增子话题">＋</button>
+        </div>
+        <div class="topic-list" id="topicList"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="ghost-btn" id="settingsBtn">设置</button>
+      </div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
     <div class="app">
-      <aside class="sidebar">
-        <button class="icon-btn sidebar-close" id="sidebarClose" title="关闭话题列表">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-        <div class="brand">
-          <span class="brand-mark">C</span>
-          <div>
-            <div class="brand-title">Chatbutte</div>
-            <div class="brand-sub">LLM 工作台</div>
-          </div>
-        </div>
-
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>子话题</h3>
-            <button class="icon-btn" id="addTopicBtn" title="新增子话题">＋</button>
-          </div>
-          <div class="topic-list" id="topicList"></div>
-        </div>
-
-        <div class="sidebar-footer">
-          <button class="ghost-btn" id="settingsBtn">设置</button>
-        </div>
-      </aside>
-
       <main class="chat">
         <header class="chat-header">
           <button class="icon-btn menu-toggle" id="menuToggle" title="打开话题列表">
@@ -93,8 +95,6 @@
         </footer>
       </main>
     </div>
-
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
     <div class="modal" id="settingsModal" aria-hidden="true">
       <div class="modal-content">
