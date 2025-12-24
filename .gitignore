@@ -33,6 +33,8 @@ dist/
 build/
 *.min.js
 *.min.css
+!libs/*.min.js
+!libs/*.min.css
 
 # Environment variables
 .env

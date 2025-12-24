@@ -189,12 +189,29 @@ body {
   border-radius: 0;
   background: var(--panel-dark);
   border: none;
-  cursor: pointer;
-  transition: 0.2s ease;
+  cursor: grab;
+  transition: 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.topic-card:active {
+  cursor: grabbing;
+}
+
+/* 拖拽中的元素 */
+.topic-card.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+/* 拖拽经过的目标元素 */
+.topic-card.drag-over {
+  background: #d4d4d8;
+  transform: translateY(2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .topic-card.active {

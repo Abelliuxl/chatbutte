@@ -22,8 +22,6 @@ const defaultState = {
   topics: [],
   activeTopicId: null,
   settings: {
-    temperature: 0.7,
-    historyCount: 12,
     sendKey: 'enter',
   },
   messagesByTopic: {},
@@ -42,9 +40,6 @@ const elements = {
   messageInput: document.getElementById('messageInput'),
   sendBtn: document.getElementById('sendBtn'),
   sendHint: document.getElementById('sendHint'),
-  tempRange: document.getElementById('tempRange'),
-  tempValue: document.getElementById('tempValue'),
-  historyCount: document.getElementById('historyCount'),
   profileSelect: document.getElementById('profileSelect'),
   clearChatBtn: document.getElementById('clearChatBtn'),
   newChatBtn: document.getElementById('newChatBtn'),
@@ -68,6 +63,9 @@ const elements = {
   topicId: document.getElementById('topicId'),
   topicName: document.getElementById('topicName'),
   topicPrompt: document.getElementById('topicPrompt'),
+  topicHistoryCount: document.getElementById('topicHistoryCount'),
+  topicTemperature: document.getElementById('topicTemperature'),
+  topicTemperatureValue: document.getElementById('topicTemperatureValue'),
   topicCancelBtn: document.getElementById('topicCancelBtn'),
   menuToggle: document.getElementById('menuToggle'),
   sidebarClose: document.getElementById('sidebarClose'),
@@ -138,9 +136,12 @@ function createId(prefix) {
 
 function renderTopics() {
   elements.topicList.innerHTML = '';
-  state.topics.forEach((topic) => {
+  state.topics.forEach((topic, index) => {
     const card = document.createElement('div');
     card.className = 'topic-card';
+    card.dataset.topicId = topic.id;
+    card.dataset.index = index;
+    card.draggable = true;
     if (topic.id === state.activeTopicId) {
       card.classList.add('active');
     }
@@ -169,6 +170,51 @@ function renderTopics() {
 
     actions.append(editBtn, deleteBtn);
     card.append(title, actions);
+
+    // 拖拽开始
+    card.addEventListener('dragstart', (event) => {
+      card.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(index));
+    });
+
+    // 拖拽结束
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.topic-card').forEach(c => {
+        c.classList.remove('drag-over');
+      });
+    });
+
+    // 拖拽经过
+    card.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      if (card !== document.querySelector('.dragging')) {
+        card.classList.add('drag-over');
+      }
+    });
+
+    // 拖拽离开
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+
+    // 放下
+    card.addEventListener('drop', (event) => {
+      event.preventDefault();
+      const fromIndex = parseInt(event.dataTransfer.getData('text/plain'));
+      const toIndex = index;
+
+      if (fromIndex !== toIndex) {
+        // 重新排序数组
+        const [movedTopic] = state.topics.splice(fromIndex, 1);
+        state.topics.splice(toIndex, 0, movedTopic);
+        saveState();
+        render();
+      }
+    });
+
     card.addEventListener('click', () => {
       state.activeTopicId = topic.id;
       saveState();
@@ -316,9 +362,6 @@ function renderProfiles() {
 }
 
 function renderSettings() {
-  elements.tempRange.value = state.settings.temperature;
-  elements.tempValue.textContent = Number(state.settings.temperature).toFixed(2);
-  elements.historyCount.value = state.settings.historyCount;
   elements.sendKeySelect.value = state.settings.sendKey;
   updateSendHint();
   renderGistConfig();
@@ -487,7 +530,9 @@ async function sendMessage() {
       state.topics.push({
         id: topicId,
         name: topicName,
-        prompt: ''
+        prompt: '',
+        historyCount: 12,
+        temperature: 0.7
       });
       state.activeTopicId = topicId;
       saveState();
@@ -499,7 +544,9 @@ async function sendMessage() {
       state.topics.push({
         id: topicId,
         name: '新话题',
-        prompt: ''
+        prompt: '',
+        historyCount: 12,
+        temperature: 0.7
       });
       state.activeTopicId = topicId;
       saveState();
@@ -515,7 +562,7 @@ async function sendMessage() {
   const historyMessages = (state.messagesByTopic[activeTopic.id] || [])
     .filter((message) => message.role === 'user' || message.role === 'assistant');
 
-  const recentMessages = historyMessages.slice(-state.settings.historyCount).map((message) => ({
+  const recentMessages = historyMessages.slice(-(activeTopic.historyCount || 12)).map((message) => ({
     role: message.role,
     content: message.content,
   }));
@@ -529,7 +576,7 @@ async function sendMessage() {
       ...(activeTopic.prompt ? [{ role: 'system', content: activeTopic.prompt }] : []),
       ...recentMessages,
     ],
-    temperature: Number(state.settings.temperature),
+    temperature: Number(activeTopic.temperature || 0.7),
     stream: true,
   };
 
@@ -622,11 +669,17 @@ function openTopicModal(topic) {
     elements.topicId.value = topic.id;
     elements.topicName.value = topic.name;
     elements.topicPrompt.value = topic.prompt || '';
+    elements.topicHistoryCount.value = topic.historyCount || 12;
+    elements.topicTemperature.value = topic.temperature || 0.7;
+    elements.topicTemperatureValue.textContent = Number(topic.temperature || 0.7).toFixed(2);
   } else {
     elements.topicModalTitle.textContent = '新增子话题';
     elements.topicId.value = '';
     elements.topicName.value = '';
     elements.topicPrompt.value = '';
+    elements.topicHistoryCount.value = 12;
+    elements.topicTemperature.value = 0.7;
+    elements.topicTemperatureValue.textContent = '0.70';
   }
   openModal(elements.topicModal);
 }
@@ -677,11 +730,15 @@ function handleTopicSubmit(event) {
   if (existing) {
     existing.name = elements.topicName.value.trim();
     existing.prompt = elements.topicPrompt.value.trim();
+    existing.historyCount = parseInt(elements.topicHistoryCount.value) || 12;
+    existing.temperature = parseFloat(elements.topicTemperature.value) || 0.7;
   } else {
     state.topics.push({
       id,
       name: elements.topicName.value.trim(),
       prompt: elements.topicPrompt.value.trim(),
+      historyCount: parseInt(elements.topicHistoryCount.value) || 12,
+      temperature: parseFloat(elements.topicTemperature.value) || 0.7,
     });
   }
   state.activeTopicId = id;
@@ -748,18 +805,6 @@ function initListeners() {
   elements.sendBtn.addEventListener('click', sendMessage);
   elements.messageInput.addEventListener('keydown', handleKeydown);
 
-  elements.tempRange.addEventListener('input', (event) => {
-    state.settings.temperature = event.target.value;
-    elements.tempValue.textContent = Number(state.settings.temperature).toFixed(2);
-    saveState();
-  });
-
-  elements.historyCount.addEventListener('change', (event) => {
-    const value = Number(event.target.value);
-    state.settings.historyCount = Number.isNaN(value) ? 12 : Math.max(1, value);
-    saveState();
-  });
-
   elements.profileSelect.addEventListener('change', (event) => {
     state.activeProfileId = event.target.value || null;
     saveState();
@@ -781,7 +826,9 @@ function initListeners() {
     state.topics.push({
       id: topicId,
       name: '新话题',
-      prompt: ''
+      prompt: '',
+      historyCount: 12,
+      temperature: 0.7
     });
     state.activeTopicId = topicId;
     saveState();
@@ -792,6 +839,11 @@ function initListeners() {
   elements.topicForm.addEventListener('submit', handleTopicSubmit);
   elements.topicCancelBtn.addEventListener('click', () => closeModal(elements.topicModal));
   elements.closeTopicBtn.addEventListener('click', () => closeModal(elements.topicModal));
+
+  // 温度滑块实时显示值
+  elements.topicTemperature.addEventListener('input', (event) => {
+    elements.topicTemperatureValue.textContent = Number(event.target.value).toFixed(2);
+  });
 
   elements.settingsBtn.addEventListener('click', () => openModal(elements.settingsModal));
   elements.closeSettingsBtn.addEventListener('click', () => closeModal(elements.settingsModal));
