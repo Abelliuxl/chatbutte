@@ -217,6 +217,10 @@ function renderTopics() {
 
     card.addEventListener('click', () => {
       state.activeTopicId = topic.id;
+      // 切换话题时，同步该话题的模型到全局
+      if (topic.activeProfileId) {
+        state.activeProfileId = topic.activeProfileId;
+      }
       saveState();
       render();
     });
@@ -532,7 +536,8 @@ async function sendMessage() {
         name: topicName,
         prompt: '',
         historyCount: 12,
-        temperature: 0.7
+        temperature: 0.7,
+        activeProfileId: state.activeProfileId
       });
       state.activeTopicId = topicId;
       saveState();
@@ -546,7 +551,8 @@ async function sendMessage() {
         name: '新话题',
         prompt: '',
         historyCount: 12,
-        temperature: 0.7
+        temperature: 0.7,
+        activeProfileId: state.activeProfileId
       });
       state.activeTopicId = topicId;
       saveState();
@@ -739,6 +745,7 @@ function handleTopicSubmit(event) {
       prompt: elements.topicPrompt.value.trim(),
       historyCount: parseInt(elements.topicHistoryCount.value) || 12,
       temperature: parseFloat(elements.topicTemperature.value) || 0.7,
+      activeProfileId: state.activeProfileId
     });
   }
   state.activeTopicId = id;
@@ -806,7 +813,17 @@ function initListeners() {
   elements.messageInput.addEventListener('keydown', handleKeydown);
 
   elements.profileSelect.addEventListener('change', (event) => {
-    state.activeProfileId = event.target.value || null;
+    const newProfileId = event.target.value || null;
+    state.activeProfileId = newProfileId;
+
+    // 如果有当前话题，同步更新该话题的模型
+    if (state.activeTopicId) {
+      const activeTopic = state.topics.find((topic) => topic.id === state.activeTopicId);
+      if (activeTopic) {
+        activeTopic.activeProfileId = newProfileId;
+      }
+    }
+
     saveState();
     renderProfiles();
   });
@@ -828,7 +845,8 @@ function initListeners() {
       name: '新话题',
       prompt: '',
       historyCount: 12,
-      temperature: 0.7
+      temperature: 0.7,
+      activeProfileId: state.activeProfileId
     });
     state.activeTopicId = topicId;
     saveState();
