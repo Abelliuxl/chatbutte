@@ -23,14 +23,9 @@ const defaultState = {
   activeTopicId: null,
   settings: {
     sendKey: 'enter',
-  },
-  messagesByTopic: {},
-  // 云同步配置
-  gistToken: '',
-  gistId: '',
-  lastSyncTime: null,
-  lastSyncHash: null, // 用于检测数据变化
-};
+    // 自定义思维链标签格式（用户可扩展）
+    customReasoningTags: [
+      { start: '</think>
 
 const elements = {
   topicList: document.getElementById('topicList'),
@@ -50,7 +45,6 @@ const elements = {
   profileList: document.getElementById('profileList'),
   profileForm: document.getElementById('profileForm'),
   profileId: document.getElementById('profileId'),
-  profileName: document.getElementById('profileName'),
   profileUrl: document.getElementById('profileUrl'),
   profileKey: document.getElementById('profileKey'),
   profileModel: document.getElementById('profileModel'),
@@ -93,6 +87,15 @@ function loadState() {
   }
   try {
     const parsed = JSON.parse(raw);
+
+    // 清理 profiles 中的旧 name 字段
+    if (parsed.profiles && Array.isArray(parsed.profiles)) {
+      parsed.profiles = parsed.profiles.map((profile) => {
+        const { name, ...rest } = profile;
+        return rest;
+      });
+    }
+
     return {
       ...structuredClone(defaultState),
       ...parsed,
@@ -261,7 +264,7 @@ function createMessageBubble(message) {
   }
 
   // 如果有思维链内容，添加思维链小气泡
-  if (message.reasoning && typeof updateReasoningBubble === 'function') {
+  if (message.reasoning) {
     const reasoningBubble = document.createElement('div');
     reasoningBubble.className = 'message-reasoning';
     updateReasoningBubble(reasoningBubble, message.reasoning, false);
@@ -424,6 +427,85 @@ function pushMessage(topicId, role, content, id = null) {
   return message;
 }
 
+// 思维链动画状态
+const reasoningAnimations = new Map();
+
+// 支持的思维链标签格式
+const REASONING_TAGS = [
+  { start: '<think>', end: '</think>' },
+  { start: '<thought>', end: '</thought>' },
+  { start: '<reasoning>', end: '</reasoning>' },
+  { start: '<think_process>', end: '</think_process>' },
+];
+
+// 从文本中提取思维链内容
+function extractReasoning(content) {
+  const reasoningParts = [];
+  let cleanedContent = content;
+
+  for (const tag of REASONING_TAGS) {
+    const regex = new RegExp(`${tag.start}([\\s\\S]*?)${tag.end}`, 'gi');
+    const matches = content.match(regex);
+
+    if (matches) {
+      matches.forEach((match) => {
+        const extracted = match
+          .replace(new RegExp(`^${tag.start}`, 'i'), '')
+          .replace(new RegExp(`${tag.end}$`, 'i'), '')
+          .trim();
+        if (extracted) {
+          reasoningParts.push(extracted);
+        }
+      });
+    }
+
+    // 移除思维链标签
+    cleanedContent = cleanedContent.replace(regex, '').trim();
+  }
+
+  return {
+    reasoning: reasoningParts.join('\n\n---\n\n'),
+    cleanedContent: cleanedContent,
+    hasReasoning: reasoningParts.length > 0,
+  };
+}
+
+function updateReasoningBubble(bubble, reasoning, isLoading = false) {
+  if (isLoading) {
+    // 显示加载动画
+    let animationInterval = reasoningAnimations.get(bubble);
+    if (!animationInterval) {
+      let dots = 0;
+      bubble.innerHTML = `<span class="reasoning-text">思考中</span><span class="reasoning-dots">${'.'.repeat(dots)}</span>`;
+      bubble.classList.add('loading');
+      animationInterval = setInterval(() => {
+        dots = (dots + 1) % 4;
+        const dotsElement = bubble.querySelector('.reasoning-dots');
+        if (dotsElement) {
+          dotsElement.textContent = '.'.repeat(dots || 1);
+        }
+      }, 300);
+      reasoningAnimations.set(bubble, animationInterval);
+    }
+  } else {
+    // 停止动画，显示预览文本
+    let animationInterval = reasoningAnimations.get(bubble);
+    if (animationInterval) {
+      clearInterval(animationInterval);
+      reasoningAnimations.delete(bubble);
+    }
+    bubble.classList.remove('loading');
+
+    // 获取预览文本（最多一行）
+    const previewText = reasoning.slice(0, 50) + (reasoning.length > 50 ? '...' : '');
+    bubble.innerHTML = `
+      <span class="reasoning-text">${previewText}</span>
+      <span class="reasoning-expand">📖</span>
+    `;
+    bubble.title = reasoning; // hover 时显示完整内容
+  }
+}
+
 function updateMessageContent(topicId, messageId, content, reasoning = null) {
   const list = state.messagesByTopic[topicId] || [];
   const target = list.find((message) => message.id === messageId);
@@ -436,7 +518,7 @@ function updateMessageContent(topicId, messageId, content, reasoning = null) {
   const bubble = elements.messages.querySelector(`[data-message-id=\"${messageId}\"]`);
   if (bubble) {
     // 更新思维链内容
-    if (reasoning !== null && typeof updateReasoningBubble === 'function') {
+    if (reasoning !== null) {
       let reasoningBubble = bubble.querySelector('.message-reasoning');
       if (!reasoningBubble && reasoning) {
         // 如果没有思维链气泡但有内容，创建一个
@@ -618,16 +700,8 @@ async function sendMessage() {
     const result = await streamChatCompletion(profile, payload, (_delta, full, reasoning) => {
       updateMessageContent(activeTopic.id, assistantMessage.id, full, reasoning);
     });
-
-    // 处理返回值（可能是字符串或对象）
-    if (!result) {
+    if (!result || !result.content) {
       updateMessageContent(activeTopic.id, assistantMessage.id, '未收到有效返回。');
-    } else if (typeof result === 'object') {
-      // 对象格式：{ content, reasoning } - 有思维链
-      updateMessageContent(activeTopic.id, assistantMessage.id, result.content, result.reasoning);
-    } else if (typeof result === 'string') {
-      // 字符串格式 - 没有思维链，但在流式响应中已经更新过了，这里只需要确认
-      // 通常不需要做任何事，因为流式回调已经处理了
     }
   } catch (error) {
     updateMessageContent(activeTopic.id, assistantMessage.id, `出错了：${error.message}`);
@@ -662,31 +736,23 @@ async function streamChatCompletion(profile, payload, onDelta) {
   const contentType = response.headers.get('content-type') || '';
   if (!response.body || !payload.stream || contentType.includes('application/json')) {
     const data = await response.json();
-    const message = data?.choices?.[0]?.message?.content || '';
-    const reasoningContent = data?.choices?.[0]?.message?.reasoning_content || '';
+    const message = data?.choices?.[0]?.message?.content;
+    const reasoning = data?.choices?.[0]?.message?.reasoning_content || '';
 
     if (!message) {
       throw new Error('返回内容为空，请确认 API 格式是否兼容 OpenAI。');
     }
 
-    // 优先使用 reasoning_content 字段，如果没有则检查标签
-    let finalReasoning = reasoningContent;
-    let finalContent = message;
-
-    if (!finalReasoning && typeof extractReasoning === 'function') {
-      const extracted = extractReasoning(message);
-      finalReasoning = extracted.reasoning;
-      finalContent = extracted.cleanedContent;
-    }
+    // 检查消息中是否有思维链标签
+    const extracted = extractReasoning(message);
+    const finalReasoning = reasoning || extracted.reasoning;
+    const finalMessage = extracted.cleanedContent;
 
     if (finalReasoning) {
-      return {
-        content: finalContent,
-        reasoning: finalReasoning,
-      };
+      onDelta('', finalMessage, finalReasoning);
     }
 
-    return message;
+    return { content: finalMessage, reasoning: finalReasoning };
   }
 
   const reader = response.body.getReader();
@@ -706,23 +772,12 @@ async function streamChatCompletion(profile, payload, onDelta) {
       if (!trimmed.startsWith('data:')) continue;
       const data = trimmed.replace(/^data:\s*/, '');
       if (data === '[DONE]') {
-        // 最终处理：优先使用 reasoning_content，如果没有则检查标签
-        let finalReasoning = fullReasoning;
-        let finalContent = full;
-
-        if (!finalReasoning && typeof extractReasoning === 'function') {
-          const extracted = extractReasoning(full);
-          finalReasoning = extracted.reasoning;
-          finalContent = extracted.cleanedContent;
-        }
-
-        if (finalReasoning) {
-          return {
-            content: finalContent,
-            reasoning: finalReasoning,
-          };
-        }
-        return full;
+        // 最终处理：检查内容中是否有思维链标签
+        const extracted = extractReasoning(full);
+        return {
+          content: extracted.cleanedContent,
+          reasoning: extracted.reasoning || fullReasoning,
+        };
       }
       try {
         const json = JSON.parse(data);
@@ -742,20 +797,14 @@ async function streamChatCompletion(profile, payload, onDelta) {
         if (chunk) {
           full += chunk;
 
-          // 如果有 reasoning_content，直接使用；否则检查标签
-          if (fullReasoning) {
-            onDelta('', full, fullReasoning);
-          } else if (typeof extractReasoning === 'function') {
-            const extracted = extractReasoning(full);
-            if (extracted.hasReasoning) {
-              // 有思维链标签，使用清理后的内容
-              onDelta('', extracted.cleanedContent, extracted.reasoning);
-            } else {
-              // 没有思维链标签，使用原始内容
-              onDelta(chunk, full, '');
-            }
+          // 检查是否有思维链标签，实时提取
+          const extracted = extractReasoning(full);
+          if (extracted.hasReasoning) {
+            // 有思维链标签，使用清理后的内容
+            onDelta('', extracted.cleanedContent, extracted.reasoning || fullReasoning);
           } else {
-            onDelta(chunk, full, '');
+            // 没有思维链标签，使用原始内容
+            onDelta(chunk, full, fullReasoning);
           }
         }
       } catch (error) {
@@ -764,24 +813,12 @@ async function streamChatCompletion(profile, payload, onDelta) {
     }
   }
 
-  // 最终处理：优先使用 reasoning_content，如果没有则检查标签
-  let finalReasoning = fullReasoning;
-  let finalContent = full;
-
-  if (!finalReasoning && typeof extractReasoning === 'function') {
-    const extracted = extractReasoning(full);
-    finalReasoning = extracted.reasoning;
-    finalContent = extracted.cleanedContent;
-  }
-
-  if (finalReasoning) {
-    return {
-      content: finalContent,
-      reasoning: finalReasoning,
-    };
-  }
-
-  return full;
+  // 最终处理：检查内容中是否有思维链标签
+  const extracted = extractReasoning(full);
+  return {
+    content: extracted.cleanedContent,
+    reasoning: extracted.reasoning || fullReasoning,
+  };
 }
 
 function openTopicModal(topic) {
@@ -819,7 +856,6 @@ function removeTopic(id) {
 
 function fillProfileForm(profile) {
   elements.profileId.value = profile.id;
-  elements.profileName.value = profile.name;
   elements.profileUrl.value = profile.apiUrl;
   elements.profileKey.value = profile.apiKey || '';
   elements.profileModel.value = profile.model;
@@ -838,7 +874,6 @@ function removeProfile(id) {
 
 function resetProfileForm() {
   elements.profileId.value = '';
-  elements.profileName.value = '';
   elements.profileUrl.value = '';
   elements.profileKey.value = '';
   elements.profileModel.value = '';
@@ -874,7 +909,6 @@ function handleProfileSubmit(event) {
   const id = elements.profileId.value || createId('profile');
   const data = {
     id,
-    name: elements.profileName.value.trim(),
     apiUrl: elements.profileUrl.value.trim(),
     apiKey: elements.profileKey.value.trim(),
     model: elements.profileModel.value.trim(),

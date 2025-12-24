@@ -455,6 +455,78 @@ body {
   white-space: nowrap;
 }
 
+/* 思维链小气泡 */
+.message-reasoning {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  margin-bottom: 6px;
+}
+
+/* 助手消息的思维链样式 */
+.message.assistant .message-reasoning {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* 用户消息的思维链样式（通常不会有，但保持一致） */
+.message.user .message-reasoning {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 思维链文本预览 */
+.reasoning-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 展开图标 */
+.reasoning-expand {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* hover 效果 */
+.message-reasoning:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.15);
+  max-width: 100%;
+}
+
+.message.assistant .message-reasoning:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.message.user .message-reasoning:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* 加载动画状态 */
+.message-reasoning.loading {
+  cursor: wait;
+}
+
+.message-reasoning.loading .reasoning-dots {
+  font-family: monospace;
+  min-width: 20px;
+  display: inline-block;
+}
+
 .composer {
   display: flex;
   flex-direction: column;
