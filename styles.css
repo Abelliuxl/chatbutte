@@ -950,3 +950,42 @@ body {
     display: none;
   }
 }
+
+/* 冲突解决弹窗样式 */
+.conflict-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 0;
+  border: 1px solid var(--border);
+}
+
+.conflict-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conflict-item strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.conflict-item span {
+  font-size: 14px;
+  color: var(--text);
+  padding-left: 12px;
+}
+
+/* 冲突弹窗的按钮样式 */
+#conflictModal .form-actions {
+  justify-content: center;
+}
+
+#conflictModal .form-actions .primary-btn {
+  min-width: 140px;
+}

@@ -27,6 +27,11 @@ const defaultState = {
     sendKey: 'enter',
   },
   messagesByTopic: {},
+  // 云同步配置
+  gistToken: '',
+  gistId: '',
+  lastSyncTime: null,
+  lastSyncHash: null, // 用于检测数据变化
 };
 
 const elements = {
@@ -72,6 +77,13 @@ const elements = {
   importBtn: document.getElementById('importBtn'),
   importFileInput: document.getElementById('importFileInput'),
   resetBtn: document.getElementById('resetBtn'),
+  // Gist 同步相关元素
+  gistToken: document.getElementById('gistToken'),
+  gistId: document.getElementById('gistId'),
+  uploadBtn: document.getElementById('uploadBtn'),
+  downloadBtn: document.getElementById('downloadBtn'),
+  saveGistBtn: document.getElementById('saveGistBtn'),
+  syncStatus: document.getElementById('syncStatus'),
 };
 
 let state = loadState();
@@ -309,6 +321,7 @@ function renderSettings() {
   elements.historyCount.value = state.settings.historyCount;
   elements.sendKeySelect.value = state.settings.sendKey;
   updateSendHint();
+  renderGistConfig();
 }
 
 function updateSendHint() {
@@ -812,6 +825,11 @@ function initListeners() {
   // 一键重置按钮
   elements.resetBtn.addEventListener('click', resetData);
 
+  // Gist 同步按钮
+  elements.uploadBtn.addEventListener('click', uploadToCloud);
+  elements.downloadBtn.addEventListener('click', downloadFromCloud);
+  elements.saveGistBtn.addEventListener('click', saveGistConfig);
+
   elements.menuToggle.addEventListener('click', () => {
     elements.sidebar.classList.add('open');
     elements.sidebarOverlay.classList.add('open');
@@ -909,6 +927,315 @@ function resetData() {
   state = structuredClone(defaultState);
   render();
   alert('数据已重置，页面已恢复到初始状态。');
+}
+
+// ============ Gist 同步相关函数 ============
+
+// 生成数据哈希值，用于检测数据变化
+function generateDataHash(data) {
+  const str = JSON.stringify(data);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // 转换为 32 位整数
+  }
+  return hash.toString(36);
+}
+
+// 获取用于同步的数据（排除敏感信息）
+function getSyncData() {
+  const { gistToken, lastSyncHash, lastSyncTime, ...syncData } = state;
+  return syncData;
+}
+
+// 格式化时间显示
+function formatTime(timestamp) {
+  if (!timestamp) return '从未同步';
+  const date = new Date(timestamp);
+  return date.toLocaleString('zh-CN');
+}
+
+// 更新同步状态显示
+function updateSyncStatus(message, type = 'info') {
+  elements.syncStatus.textContent = message;
+  elements.syncStatus.style.color = type === 'error' ? '#9f2d1f' : type === 'success' ? '#2d7a3f' : '';
+}
+
+// 上传数据到 Gist
+async function uploadToGist() {
+  if (!state.gistToken) {
+    throw new Error('请先配置 GitHub Gist Token');
+  }
+
+  const syncData = getSyncData();
+  const content = JSON.stringify(syncData, null, 2);
+  const filename = 'chatbutte-data.json';
+  const description = `Chatbutte Chat Data - Synced at ${new Date().toISOString()}`;
+
+  const headers = {
+    'Authorization': `Bearer ${state.gistToken}`,
+    'Content-Type': 'application/json',
+    'Accept': 'application/vnd.github+json',
+  };
+
+  let url = 'https://api.github.com/gists';
+  let method = 'POST';
+
+  // 如果已有 gistId，则更新
+  if (state.gistId) {
+    url = `https://api.github.com/gists/${state.gistId}`;
+    method = 'PATCH';
+  }
+
+  const body = state.gistId
+    ? {
+        description,
+        files: {
+          [filename]: {
+            content,
+          },
+        },
+      }
+    : {
+        description,
+        public: false,
+        files: {
+          [filename]: {
+            content,
+          },
+        },
+      };
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || '上传到 Gist 失败');
+  }
+
+  const data = await response.json();
+
+  // 如果是新创建的 gist，保存 gistId
+  if (!state.gistId && data.id) {
+    state.gistId = data.id;
+    elements.gistId.value = data.id;
+  }
+
+  return data;
+}
+
+// 从 Gist 下载数据
+async function downloadFromGist() {
+  if (!state.gistToken) {
+    throw new Error('请先配置 GitHub Gist Token');
+  }
+  if (!state.gistId) {
+    throw new Error('请先进行首次同步以创建 Gist');
+  }
+
+  const headers = {
+    'Authorization': `Bearer ${state.gistToken}`,
+    'Accept': 'application/vnd.github+json',
+  };
+
+  const response = await fetch(`https://api.github.com/gists/${state.gistId}`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || '从 Gist 下载数据失败');
+  }
+
+  const data = await response.json();
+
+  // 获取文件内容和更新时间
+  const files = data.files;
+  const filename = Object.keys(files).find(f => f.endsWith('.json'));
+  if (!filename || !files[filename]) {
+    throw new Error('Gist 中没有找到数据文件');
+  }
+
+  const content = files[filename].content;
+  return {
+    data: JSON.parse(content),
+    updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now(),
+  };
+}
+
+// 上传到云端
+async function uploadToCloud() {
+  if (!state.gistToken) {
+    updateSyncStatus('请先配置 Gist Token', 'error');
+    return;
+  }
+
+  try {
+    // 如果没有 gistId，询问是否创建新的
+    if (!state.gistId) {
+      const shouldCreate = confirm(
+        '未检测到 Gist ID。\n\n' +
+        '点击「确定」创建新的 Gist 并上传数据\n' +
+        '点击「取消」取消上传'
+      );
+
+      if (!shouldCreate) {
+        updateSyncStatus('上传已取消', 'info');
+        return;
+      }
+    } else {
+      // 有 gistId，先检查云端数据
+      try {
+        const remote = await downloadFromGist();
+        const remoteHash = generateDataHash(remote.data);
+        const localHash = generateDataHash(getSyncData());
+
+        // 检查数据是否一致
+        if (localHash === remoteHash) {
+          alert('✓ 云端数据与本地数据已一致，无需上传。');
+          updateSyncStatus('云端与本地数据已一致', 'success');
+          return;
+        }
+
+        // 检查云端是否比本地新（被其他客户端修改过）
+        if (state.lastSyncHash && state.lastSyncHash !== remoteHash && localHash !== remoteHash) {
+          const shouldOverwrite = confirm(
+            '云端数据已被其他客户端修改（更新时间：' + formatTime(remote.updatedAt) + '）。\n\n' +
+            '点击「确定」用本地数据覆盖云端\n' +
+            '点击「取消」取消上传'
+          );
+
+          if (!shouldOverwrite) {
+            updateSyncStatus('上传已取消，云端数据未受影响', 'info');
+            return;
+          }
+        }
+      } catch (error) {
+        // 无法下载云端数据（可能 Gist 被删除），询问是否创建新的
+        const shouldRecreate = confirm(
+          '无法访问云端 Gist（可能已被删除）。\n\n' +
+          '点击「确定」创建新的 Gist\n' +
+          '点击「取消」取消上传'
+        );
+
+        if (!shouldRecreate) {
+          updateSyncStatus('上传已取消', 'info');
+          return;
+        }
+
+        state.gistId = '';
+        elements.gistId.value = '';
+      }
+    }
+
+    // 执行上传
+    updateSyncStatus('正在上传...', 'info');
+    const result = await uploadToGist();
+
+    // 更新同步状态
+    state.lastSyncTime = Date.now();
+    state.lastSyncHash = generateDataHash(getSyncData());
+    saveState();
+
+    // 更新 UI
+    if (!elements.gistId.value && result.id) {
+      elements.gistId.value = result.id;
+    }
+
+    updateSyncStatus(`上传成功！${formatTime(state.lastSyncTime)}`, 'success');
+  } catch (error) {
+    updateSyncStatus(`上传失败：${error.message}`, 'error');
+    console.error('上传失败:', error);
+  }
+}
+
+// 从云端下载
+async function downloadFromCloud() {
+  if (!state.gistToken) {
+    updateSyncStatus('请先配置 Gist Token', 'error');
+    return;
+  }
+
+  if (!state.gistId) {
+    updateSyncStatus('请先上传数据到云端以创建 Gist', 'error');
+    return;
+  }
+
+  try {
+    updateSyncStatus('正在检查云端数据...', 'info');
+
+    const remote = await downloadFromGist();
+    const remoteData = remote.data;
+    const remoteHash = generateDataHash(remoteData);
+    const localHash = generateDataHash(getSyncData());
+
+    // 检查数据是否一致
+    if (localHash === remoteHash) {
+      alert('✓ 云端数据与本地数据已一致，无需下载。');
+      updateSyncStatus('云端与本地数据已一致', 'success');
+      return;
+    }
+
+    // 数据不一致，询问是否覆盖
+    const shouldOverwrite = confirm(
+      '⚠️ 即将用云端数据覆盖本地所有数据。\n\n' +
+      '此操作将替换所有聊天记录、话题和配置。\n' +
+      '点击「确定」继续下载并覆盖\n' +
+      '点击「取消」保留本地数据'
+    );
+
+    if (!shouldOverwrite) {
+      updateSyncStatus('下载已取消，本地数据未受影响', 'info');
+      return;
+    }
+
+    updateSyncStatus('正在下载...', 'info');
+
+    // 用云端数据覆盖本地
+    const { gistToken, gistId } = state;
+    state = {
+      ...structuredClone(defaultState),
+      ...remoteData,
+      gistToken,
+      gistId,
+      lastSyncTime: Date.now(),
+      lastSyncHash: remoteHash,
+    };
+
+    saveState();
+    render();
+
+    updateSyncStatus(`下载成功！已用云端数据覆盖本地`, 'success');
+  } catch (error) {
+    updateSyncStatus(`下载失败：${error.message}`, 'error');
+    console.error('下载失败:', error);
+  }
+}
+
+// 保存 Gist 配置
+function saveGistConfig() {
+  state.gistToken = elements.gistToken.value.trim();
+  state.gistId = elements.gistId.value.trim();
+  saveState();
+  updateSyncStatus('配置已保存', 'success');
+}
+
+// 渲染 Gist 配置
+function renderGistConfig() {
+  elements.gistToken.value = state.gistToken || '';
+  elements.gistId.value = state.gistId || '';
+
+  if (state.lastSyncTime) {
+    updateSyncStatus(`上次操作：${formatTime(state.lastSyncTime)}`);
+  } else {
+    updateSyncStatus('手动控制数据同步，可选择上传或下载');
+  }
 }
 
 boot();

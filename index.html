@@ -180,6 +180,28 @@
           </section>
 
           <section class="settings-section">
+            <div class="section-title">云同步</div>
+            <div class="card">
+              <div class="field">
+                <label for="gistToken">GitHub Gist Token</label>
+                <input id="gistToken" type="password" placeholder="ghp_xxxxxxxxxxxx" />
+                <div class="muted">需要在 GitHub 创建具有 gist 权限的 Personal Access Token</div>
+              </div>
+              <div class="field">
+                <label for="gistId">Gist ID</label>
+                <input id="gistId" type="text" placeholder="首次同步将自动创建" />
+                <div class="muted">自动创建的 Gist ID，保存后即可使用云同步功能</div>
+              </div>
+              <div class="form-actions">
+                <button class="ghost-btn" id="uploadBtn">上传到云端</button>
+                <button class="ghost-btn" id="downloadBtn">从云端下载</button>
+                <button class="ghost-btn" id="saveGistBtn">保存配置</button>
+              </div>
+              <div class="muted" id="syncStatus">手动控制数据同步，可选择上传或下载</div>
+            </div>
+          </section>
+
+          <section class="settings-section">
             <div class="section-title">数据管理</div>
             <div class="card">
               <div class="form-actions">
