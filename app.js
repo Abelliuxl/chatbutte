@@ -252,6 +252,24 @@ function renderMessages() {
 
 function createMessageBubble(message) {
   const bubble = document.createElement('div');
+
+  // 处理上下文截断标记
+  if (message.role === 'context_cutoff') {
+    bubble.className = 'context-cutoff';
+    bubble.innerHTML = `
+      <div class="cutoff-line"></div>
+      <div class="cutoff-label">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="9" y1="9" x2="15" y2="9"></line>
+          <line x1="9" y1="15" x2="15" y2="15"></line>
+        </svg>
+        <span>上下文已清除 - 后续对话不会上传此线之前的内容</span>
+      </div>
+    `;
+    return bubble;
+  }
+
   bubble.className = `message ${message.role}`;
   if (message.id) {
     bubble.dataset.messageId = message.id;
@@ -593,9 +611,22 @@ async function sendMessage() {
   pushMessage(activeTopic.id, 'user', text);
   renderMessages();
 
-  const historyMessages = (state.messagesByTopic[activeTopic.id] || [])
-    .filter((message) => message.role === 'user' || message.role === 'assistant');
+  const messages = state.messagesByTopic[activeTopic.id] || [];
 
+  // 找到最后一个截断标记的位置
+  const lastCutoffIndex = messages.findLastIndex(m => m.role === 'context_cutoff');
+
+  // 获取历史消息，只保留截断线之后的
+  let historyMessages = messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+
+  if (lastCutoffIndex !== -1) {
+    // 计算截断线之后有多少条有效消息
+    const messagesAfterCutoff = messages.slice(lastCutoffIndex + 1)
+      .filter((message) => message.role === 'user' || message.role === 'assistant');
+    historyMessages = messagesAfterCutoff;
+  }
+
+  // 应用 historyCount 限制
   const recentMessages = historyMessages.slice(-(activeTopic.historyCount || 12)).map((message) => ({
     role: message.role,
     content: message.content,
@@ -953,19 +984,28 @@ function initListeners() {
   });
 
   elements.newChatBtn.addEventListener('click', () => {
-    // 创建一个新的空白话题
-    const topicId = createId('topic');
-    state.topics.push({
-      id: topicId,
-      name: '新话题',
-      prompt: '',
-      historyCount: 12,
-      temperature: 0.7,
-      activeProfileId: state.activeProfileId
-    });
-    state.activeTopicId = topicId;
+    const activeTopic = getActiveTopic();
+    if (!activeTopic) {
+      alert('请先选择一个话题');
+      return;
+    }
+
+    // 检查是否已有截断标记，如果有则移除旧的
+    const messages = state.messagesByTopic[activeTopic.id] || [];
+    const lastCutoffIndex = messages.findLastIndex(m => m.role === 'context_cutoff');
+
+    if (lastCutoffIndex !== -1) {
+      if (!confirm('已存在上下文截断标记，确定要重新截断吗？这将移除旧的截断线。')) {
+        return;
+      }
+      // 移除旧的截断标记
+      messages.splice(lastCutoffIndex, 1);
+    }
+
+    // 插入新的截断标记
+    pushMessage(activeTopic.id, 'context_cutoff', '');
     saveState();
-    render();
+    renderMessages();
   });
 
   elements.addTopicBtn.addEventListener('click', () => openTopicModal());
