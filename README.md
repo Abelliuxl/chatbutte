@@ -38,6 +38,10 @@ You can directly access the online demo version:
 
 🔗 **[https://liuxl.com.cn/chatbutte](https://liuxl.com.cn/chatbutte)**
 
+![Demo GIF](assets/demo.gif)
+
+*Screen recording showing the usage of Chatbutte*
+
 #### Direct Use
 
 1. Download the project files
@@ -112,6 +116,10 @@ MIT License
 您可以直接访问在线演示版本：
 
 🔗 **[https://liuxl.com.cn/chatbutte](https://liuxl.com.cn/chatbutte)**
+
+![演示 GIF](assets/demo.gif)
+
+*屏幕录制展示 Chatbutte 的使用过程*
 
 #### 直接使用
 
