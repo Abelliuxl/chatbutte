@@ -82,6 +82,8 @@ const elements = {
   downloadBtn: document.getElementById('downloadBtn'),
   saveGistBtn: document.getElementById('saveGistBtn'),
   syncStatus: document.getElementById('syncStatus'),
+  // 语言切换器
+  langOptions: document.querySelectorAll('.lang-option'),
 };
 
 let state = loadState();
@@ -154,7 +156,7 @@ function renderTopics() {
     actions.className = 'topic-actions';
     const editBtn = document.createElement('button');
     editBtn.className = 'ghost-btn';
-    editBtn.textContent = '编辑';
+    editBtn.textContent = t('settings.edit');
     editBtn.addEventListener('click', (event) => {
       event.stopPropagation();
       openTopicModal(topic);
@@ -162,7 +164,7 @@ function renderTopics() {
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'ghost-btn';
-    deleteBtn.textContent = '删除';
+    deleteBtn.textContent = t('settings.delete');
     deleteBtn.addEventListener('click', (event) => {
       event.stopPropagation();
       removeTopic(topic.id);
@@ -231,12 +233,12 @@ function renderTopics() {
 function renderTopicHeader() {
   const activeTopic = state.topics.find((topic) => topic.id === state.activeTopicId);
   if (!activeTopic) {
-    elements.topicTitle.textContent = '未选择子话题';
-    elements.topicPromptPreview.textContent = '请选择或创建一个子话题，并填写系统提示词。';
+    elements.topicTitle.textContent = t('main.noTopic');
+    elements.topicPromptPreview.textContent = t('main.noTopicHint');
     return;
   }
   elements.topicTitle.textContent = activeTopic.name;
-  elements.topicPromptPreview.textContent = activeTopic.prompt || '未设置系统提示词';
+  elements.topicPromptPreview.textContent = activeTopic.prompt || (getCurrentLanguage() === 'zh' ? '未设置系统提示词' : 'No system prompt set');
 }
 
 function renderMessages() {
@@ -264,7 +266,7 @@ function createMessageBubble(message) {
           <line x1="9" y1="9" x2="15" y2="9"></line>
           <line x1="9" y1="15" x2="15" y2="15"></line>
         </svg>
-        <span>上下文已清除 - 后续对话不会上传此线之前的内容</span>
+        <span>${t('main.contextCleared')}</span>
       </div>
     `;
     return bubble;
@@ -300,9 +302,9 @@ function createMessageBubble(message) {
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
     </svg>
-    <span>复制</span>
+    <span>${t('message.copy')}</span>
   `;
-  copyBtn.title = '复制消息';
+  copyBtn.title = t('message.copy.title');
 
   // 复制按钮点击事件
   copyBtn.addEventListener('click', async () => {
@@ -315,7 +317,7 @@ function createMessageBubble(message) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>
-        <span>已复制</span>
+        <span>${t('message.copied')}</span>
       `;
       // 2秒后恢复原状
       setTimeout(() => {
@@ -325,11 +327,11 @@ function createMessageBubble(message) {
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
           </svg>
-          <span>复制</span>
+          <span>${t('message.copy')}</span>
         `;
       }, 2000);
     } catch (err) {
-      console.error('复制失败:', err);
+      console.error('Copy failed:', err);
     }
   });
 
@@ -349,7 +351,7 @@ function renderProfiles() {
   if (!state.profiles.length) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = '未配置模型';
+    option.textContent = t('settings.noModel');
     elements.profileSelect.appendChild(option);
   }
 
@@ -377,12 +379,12 @@ function renderProfiles() {
     const actions = document.createElement('div');
     const editBtn = document.createElement('button');
     editBtn.className = 'ghost-btn';
-    editBtn.textContent = '编辑';
+    editBtn.textContent = t('settings.edit');
     editBtn.addEventListener('click', () => fillProfileForm(profile));
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'ghost-btn';
-    deleteBtn.textContent = '删除';
+    deleteBtn.textContent = t('settings.delete');
     deleteBtn.addEventListener('click', () => removeProfile(profile.id));
 
     actions.append(editBtn, deleteBtn);
@@ -397,19 +399,213 @@ function renderSettings() {
   renderGistConfig();
 }
 
+// 更新界面文本（多语言支持）
+function updateUIText() {
+  const lang = getCurrentLanguage();
+
+  // 侧栏
+  const sidebarClose = document.querySelector('.sidebar-close');
+  if (sidebarClose) sidebarClose.title = t('sidebar.close');
+
+  const brandSub = document.querySelector('.brand-sub');
+  if (brandSub) brandSub.textContent = t('sidebar.brand');
+
+  const sectionHeaderH3 = document.querySelector('.section-header h3');
+  if (sectionHeaderH3) sectionHeaderH3.textContent = t('sidebar.topics');
+
+  if (elements.addTopicBtn) elements.addTopicBtn.title = t('sidebar.topics.add');
+  if (elements.settingsBtn) elements.settingsBtn.textContent = t('sidebar.settings');
+
+  // 主界面
+  if (elements.messageInput) elements.messageInput.placeholder = t('main.input.placeholder');
+  if (elements.sendBtn) elements.sendBtn.textContent = t('main.send');
+  if (elements.clearChatBtn) elements.clearChatBtn.textContent = t('main.clearChat');
+  if (elements.newChatBtn) elements.newChatBtn.textContent = t('main.newChat');
+
+  const controlInlineLabel = document.querySelector('.control-inline label');
+  if (controlInlineLabel) controlInlineLabel.textContent = t('main.model');
+
+  // 设置模态框
+  const settingsTitle = document.querySelector('#settingsModal .modal-header h3');
+  if (settingsTitle) settingsTitle.textContent = t('settings.title');
+
+  const settingsSections = document.querySelectorAll('#settingsModal .settings-section');
+  if (settingsSections[0]) {
+    const title = settingsSections[0].querySelector('.section-title');
+    if (title) title.textContent = t('settings.modelConfig');
+  }
+  if (settingsSections[1]) {
+    const title = settingsSections[1].querySelector('.section-title');
+    if (title) title.textContent = t('settings.sendConfig');
+  }
+  if (settingsSections[2]) {
+    const title = settingsSections[2].querySelector('.section-title');
+    if (title) title.textContent = t('settings.cloudSync');
+  }
+  if (settingsSections[3]) {
+    const title = settingsSections[3].querySelector('.section-title');
+    if (title) title.textContent = t('settings.dataManagement');
+  }
+
+  // 模型配置表单
+  if (elements.profileUrl) {
+    elements.profileUrl.placeholder = t('settings.apiUrl.placeholder');
+    const label = document.querySelector('#profileUrl');
+    if (label && label.previousElementSibling) label.previousElementSibling.textContent = t('settings.apiUrl');
+  }
+  if (elements.profileKey) {
+    elements.profileKey.placeholder = t('settings.apiKey.placeholder');
+    const label = document.querySelector('#profileKey');
+    if (label && label.previousElementSibling) label.previousElementSibling.textContent = t('settings.apiKey');
+  }
+  if (elements.profileModel) {
+    elements.profileModel.placeholder = t('settings.model.placeholder');
+    const label = document.querySelector('#profileModel');
+    if (label && label.previousElementSibling) label.previousElementSibling.textContent = t('settings.model');
+  }
+
+  if (elements.profileCancelBtn) elements.profileCancelBtn.textContent = t('settings.cancel');
+  const profileSaveBtn = document.querySelector('#profileSaveBtn');
+  if (profileSaveBtn) profileSaveBtn.textContent = t('settings.save');
+
+  // 发送设置
+  const sendKeySelectLabel = document.querySelector('#sendKeySelect');
+  if (sendKeySelectLabel && sendKeySelectLabel.previousElementSibling) {
+    sendKeySelectLabel.previousElementSibling.textContent = t('settings.sendKey');
+  }
+
+  if (elements.sendKeySelect) {
+    const sendKeyOptions = elements.sendKeySelect.querySelectorAll('option');
+    if (sendKeyOptions[0]) sendKeyOptions[0].textContent = t('settings.sendKey.enter');
+    if (sendKeyOptions[1]) sendKeyOptions[1].textContent = t('settings.sendKey.cmd');
+    if (sendKeyOptions[2]) sendKeyOptions[2].textContent = t('settings.sendKey.ctrl');
+    if (sendKeyOptions[3]) sendKeyOptions[3].textContent = t('settings.sendKey.alt');
+
+    const sendKeyParent = elements.sendKeySelect.parentElement;
+    if (sendKeyParent) {
+      const hint = sendKeyParent.querySelector('.muted');
+      if (hint) hint.textContent = t('settings.sendKey.hint.mac');
+    }
+  }
+
+  // 云同步
+  if (elements.gistToken) {
+    const label = elements.gistToken.previousElementSibling;
+    if (label) label.textContent = t('settings.gistToken');
+    elements.gistToken.placeholder = t('settings.gistToken.placeholder');
+
+    const parent = elements.gistToken.parentElement;
+    if (parent) {
+      const hint = parent.querySelector('.muted');
+      if (hint) hint.textContent = t('settings.gistToken.hint');
+    }
+  }
+
+  if (elements.gistId) {
+    const label = elements.gistId.previousElementSibling;
+    if (label) label.textContent = t('settings.gistId');
+    elements.gistId.placeholder = t('settings.gistId.placeholder');
+
+    const parent = elements.gistId.parentElement;
+    if (parent) {
+      const hint = parent.querySelector('.muted');
+      if (hint) hint.textContent = t('settings.gistId.hint');
+    }
+  }
+
+  if (elements.uploadBtn) elements.uploadBtn.textContent = t('settings.upload');
+  if (elements.downloadBtn) elements.downloadBtn.textContent = t('settings.download');
+  if (elements.saveGistBtn) elements.saveGistBtn.textContent = t('settings.saveConfig');
+
+  // 数据管理
+  if (elements.importBtn) elements.importBtn.textContent = t('settings.import');
+  if (elements.exportBtn) elements.exportBtn.textContent = t('settings.export');
+
+  if (elements.importFileInput) {
+    const parent = elements.importFileInput.parentElement;
+    if (parent) {
+      const hint = parent.querySelector('.muted');
+      if (hint) hint.textContent = t('settings.export.hint');
+    }
+  }
+
+  if (elements.resetBtn) elements.resetBtn.textContent = t('settings.reset');
+
+  const resetBtnParent = document.querySelector('#resetBtn');
+  if (resetBtnParent && resetBtnParent.parentElement) {
+    const hint = resetBtnParent.parentElement.querySelector('.muted');
+    if (hint) hint.textContent = t('settings.reset.hint');
+  }
+
+  // 话题模态框
+  if (elements.topicModalTitle) elements.topicModalTitle.textContent = t('topic.add');
+
+  if (elements.topicName) {
+    const label = elements.topicName.previousElementSibling;
+    if (label) label.textContent = t('topic.name');
+    elements.topicName.placeholder = t('topic.name.placeholder');
+  }
+
+  if (elements.topicPrompt) {
+    const label = elements.topicPrompt.previousElementSibling;
+    if (label) label.textContent = t('topic.prompt');
+    elements.topicPrompt.placeholder = t('topic.prompt.placeholder');
+  }
+
+  if (elements.topicHistoryCount) {
+    const label = elements.topicHistoryCount.previousElementSibling;
+    if (label) label.textContent = t('topic.historyCount');
+
+    const parent = elements.topicHistoryCount.parentElement;
+    if (parent) {
+      const hint = parent.querySelector('.muted');
+      if (hint) hint.textContent = t('topic.historyCount.hint');
+    }
+  }
+
+  if (elements.topicTemperature) {
+    const label = elements.topicTemperature.previousElementSibling;
+    if (label) label.textContent = t('topic.temperature');
+
+    // 同时更新 class 为 topic-temperature-label 的元素（在 HTML 中）
+    const tempLabel = document.querySelector('.topic-temperature-label');
+    if (tempLabel) tempLabel.textContent = t('topic.temperature');
+
+    // .muted 元素在 .field 下面，是 .range-wrap 的兄弟元素
+    const field = elements.topicTemperature.closest('.field');
+    if (field) {
+      const hint = field.querySelector('.muted');
+      if (hint) hint.textContent = t('topic.temperature.hint');
+    }
+  }
+
+  if (elements.topicCancelBtn) elements.topicCancelBtn.textContent = t('settings.cancel');
+
+  const topicFormPrimaryBtn = document.querySelector('#topicForm .primary-btn');
+  if (topicFormPrimaryBtn) topicFormPrimaryBtn.textContent = t('topic.save');
+
+  // 更新语言切换器的激活状态
+  elements.langOptions.forEach(btn => {
+    btn.classList.remove('active');
+    if (btn.dataset.lang === lang) {
+      btn.classList.add('active');
+    }
+  });
+}
+
 function updateSendHint() {
   // 检测操作系统平台
   const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
   const map = {
     enter: isMac
-      ? 'Enter 发送 · Cmd/Ctrl/Option + Enter 换行'
-      : 'Enter 发送 · Ctrl/Alt + Enter 换行',
-    cmd: 'Cmd + Enter 发送 · 其他组合键换行',
-    ctrl: 'Ctrl + Enter 发送 · 其他组合键换行',
+      ? t('sendHint.enter.mac')
+      : t('sendHint.enter.windows'),
+    cmd: t('sendHint.cmd'),
+    ctrl: t('sendHint.ctrl'),
     alt: isMac
-      ? 'Option + Enter 发送 · 其他组合键换行'
-      : 'Alt + Enter 发送 · 其他组合键换行',
+      ? t('sendHint.alt.mac')
+      : t('sendHint.alt.windows'),
   };
   elements.sendHint.textContent = map[state.settings.sendKey] || '';
 }
@@ -421,6 +617,7 @@ function render() {
   renderMessages();
   renderProfiles();
   renderSettings();
+  updateUIText();
   saveState();
 }
 
@@ -489,9 +686,9 @@ function updateMessageContent(topicId, messageId, content, reasoning = null) {
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
         </svg>
-        <span>复制</span>
+        <span>${t('message.copy')}</span>
       `;
-      copyBtn.title = '复制消息';
+      copyBtn.title = t('message.copy.title');
 
       copyBtn.addEventListener('click', async () => {
         const text = content || '';
@@ -502,7 +699,7 @@ function updateMessageContent(topicId, messageId, content, reasoning = null) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
-            <span>已复制</span>
+            <span>${t('message.copied')}</span>
           `;
           setTimeout(() => {
             copyBtn.classList.remove('copied');
@@ -511,11 +708,11 @@ function updateMessageContent(topicId, messageId, content, reasoning = null) {
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
               </svg>
-              <span>复制</span>
+              <span>${t('message.copy')}</span>
             `;
           }, 2000);
         } catch (err) {
-          console.error('复制失败:', err);
+          console.error('Copy failed:', err);
         }
       });
 
@@ -531,7 +728,7 @@ async function generateTopicName(text, profile) {
     messages: [
       {
         role: 'system',
-        content: '请用一句话总结以下内容作为聊天话题名称，要求简洁明了，不超过20个字。只返回话题名称，不要添加任何其他解释。'
+        content: t('topicNameGen.prompt')
       },
       {
         role: 'user',
@@ -559,7 +756,7 @@ async function generateTopicName(text, profile) {
   }
 
   const data = await response.json();
-  return data?.choices?.[0]?.message?.content || '新话题';
+  return data?.choices?.[0]?.message?.content || t('topic.generateName');
 }
 
 async function sendMessage() {
@@ -568,7 +765,7 @@ async function sendMessage() {
   if (!text) return;
   const profile = getActiveProfile();
   if (!profile) {
-    alert('请先在设置里配置模型。');
+    alert(t('message.noModel'));
     return;
   }
 
@@ -594,7 +791,7 @@ async function sendMessage() {
       const topicId = createId('topic');
       state.topics.push({
         id: topicId,
-        name: '新话题',
+        name: t('topic.generateName'),
         prompt: '',
         historyCount: 12,
         temperature: 0.7,
@@ -652,7 +849,7 @@ async function sendMessage() {
 
     // 处理返回值（可能是字符串或对象）
     if (!result) {
-      updateMessageContent(activeTopic.id, assistantMessage.id, '未收到有效返回。');
+      updateMessageContent(activeTopic.id, assistantMessage.id, t('error.emptyResponse'));
     } else if (typeof result === 'object') {
       // 对象格式：{ content, reasoning } - 有思维链
       updateMessageContent(activeTopic.id, assistantMessage.id, result.content, result.reasoning);
@@ -661,7 +858,7 @@ async function sendMessage() {
       // 通常不需要做任何事，因为流式回调已经处理了
     }
   } catch (error) {
-    updateMessageContent(activeTopic.id, assistantMessage.id, `出错了：${error.message}`);
+    updateMessageContent(activeTopic.id, assistantMessage.id, `${t('message.error')}${error.message}`);
     const target = state.messagesByTopic[activeTopic.id].find(
       (message) => message.id === assistantMessage.id
     );
@@ -817,7 +1014,7 @@ async function streamChatCompletion(profile, payload, onDelta) {
 
 function openTopicModal(topic) {
   if (topic) {
-    elements.topicModalTitle.textContent = '编辑子话题';
+    elements.topicModalTitle.textContent = t('topic.edit');
     elements.topicId.value = topic.id;
     elements.topicName.value = topic.name;
     elements.topicPrompt.value = topic.prompt || '';
@@ -825,7 +1022,7 @@ function openTopicModal(topic) {
     elements.topicTemperature.value = topic.temperature || 0.7;
     elements.topicTemperatureValue.textContent = Number(topic.temperature || 0.7).toFixed(2);
   } else {
-    elements.topicModalTitle.textContent = '新增子话题';
+    elements.topicModalTitle.textContent = t('topic.add');
     elements.topicId.value = '';
     elements.topicName.value = '';
     elements.topicPrompt.value = '';
@@ -837,7 +1034,7 @@ function openTopicModal(topic) {
 }
 
 function removeTopic(id) {
-  if (!confirm('确定删除该子话题吗？此操作不会删除已保存的消息，但会隐藏它们。')) {
+  if (!confirm(t('topic.deleteConfirm'))) {
     return;
   }
   state.topics = state.topics.filter((topic) => topic.id !== id);
@@ -850,7 +1047,8 @@ function removeTopic(id) {
 
 function fillProfileForm(profile) {
   elements.profileId.value = profile.id;
-  elements.profileName.value = profile.name;
+  // profileName 不存在于 HTML 中，注释掉
+  // elements.profileName.value = profile.name;
   elements.profileUrl.value = profile.apiUrl;
   elements.profileKey.value = profile.apiKey || '';
   elements.profileModel.value = profile.model;
@@ -858,7 +1056,7 @@ function fillProfileForm(profile) {
 }
 
 function removeProfile(id) {
-  if (!confirm('确定删除该模型配置吗？')) return;
+  if (!confirm(t('profile.deleteConfirm'))) return;
   state.profiles = state.profiles.filter((profile) => profile.id !== id);
   if (state.activeProfileId === id) {
     state.activeProfileId = state.profiles.length ? state.profiles[0].id : null;
@@ -869,7 +1067,8 @@ function removeProfile(id) {
 
 function resetProfileForm() {
   elements.profileId.value = '';
-  elements.profileName.value = '';
+  // profileName 不存在于 HTML 中，注释掉
+  // elements.profileName.value = '';
   elements.profileUrl.value = '';
   elements.profileKey.value = '';
   elements.profileModel.value = '';
@@ -903,12 +1102,13 @@ function handleTopicSubmit(event) {
 function handleProfileSubmit(event) {
   event.preventDefault();
   const id = elements.profileId.value || createId('profile');
+  const modelValue = elements.profileModel.value.trim();
   const data = {
     id,
-    name: elements.profileName.value.trim(),
+    name: modelValue, // 使用 model 作为 name
     apiUrl: elements.profileUrl.value.trim(),
     apiKey: elements.profileKey.value.trim(),
-    model: elements.profileModel.value.trim(),
+    model: modelValue,
   };
   const existing = state.profiles.find((profile) => profile.id === id);
   if (existing) {
@@ -977,7 +1177,7 @@ function initListeners() {
   elements.clearChatBtn.addEventListener('click', () => {
     const activeTopic = getActiveTopic();
     if (!activeTopic) return;
-    if (!confirm('确定清空当前子话题的聊天记录吗？')) return;
+    if (!confirm(t('topic.clearConfirm'))) return;
     state.messagesByTopic[activeTopic.id] = [];
     saveState();
     renderMessages();
@@ -986,7 +1186,7 @@ function initListeners() {
   elements.newChatBtn.addEventListener('click', () => {
     const activeTopic = getActiveTopic();
     if (!activeTopic) {
-      alert('请先选择一个话题');
+      alert(t('topic.noTopicSelected'));
       return;
     }
 
@@ -995,7 +1195,7 @@ function initListeners() {
     const lastCutoffIndex = messages.findLastIndex(m => m.role === 'context_cutoff');
 
     if (lastCutoffIndex !== -1) {
-      if (!confirm('已存在上下文截断标记，确定要重新截断吗？这将移除旧的截断线。')) {
+      if (!confirm(t('topic.contextExists'))) {
         return;
       }
       // 移除旧的截断标记
@@ -1060,6 +1260,22 @@ function initListeners() {
     elements.sidebarOverlay.classList.add('open');
   });
 
+  // 语言切换按钮事件监听
+  elements.langOptions.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lang = btn.dataset.lang;
+      if (lang !== getCurrentLanguage()) {
+        toggleLanguage();
+        render();
+      }
+    });
+  });
+
+  // 监听语言变化事件（当从外部切换语言时）
+  window.addEventListener('languageChange', () => {
+    render();
+  });
+
   elements.sidebarClose.addEventListener('click', () => {
     elements.sidebar.classList.remove('open');
     elements.sidebarOverlay.classList.remove('open');
@@ -1118,7 +1334,7 @@ function importData(file) {
 
       // 验证导入的数据结构
       if (!imported || typeof imported !== 'object') {
-        alert('导入失败：文件格式不正确');
+        alert(t('import.failed'));
         return;
       }
 
@@ -1132,9 +1348,9 @@ function importData(file) {
 
       saveState();
       render();
-      alert('数据导入成功！');
+      alert(t('import.success'));
     } catch (error) {
-      alert('导入失败：JSON 解析错误\n' + error.message);
+      alert(t('import.parseError') + error.message);
     }
   };
   reader.readAsText(file);
@@ -1142,16 +1358,16 @@ function importData(file) {
 
 // 一键重置所有数据
 function resetData() {
-  if (!confirm('确定要重置所有数据吗？\n\n此操作将清空所有聊天记录、话题和模型配置，恢复到初始状态。\n此操作不可撤销！')) {
+  if (!confirm(t('reset.confirm'))) {
     return;
   }
-  if (!confirm('再次确认：真的要删除所有数据吗？')) {
+  if (!confirm(t('reset.confirmAgain'))) {
     return;
   }
   localStorage.removeItem(STORAGE_KEY);
   state = structuredClone(defaultState);
   render();
-  alert('数据已重置，页面已恢复到初始状态。');
+  alert(t('reset.success'));
 }
 
 // ============ Gist 同步相关函数 ============
@@ -1176,9 +1392,10 @@ function getSyncData() {
 
 // 格式化时间显示
 function formatTime(timestamp) {
-  if (!timestamp) return '从未同步';
+  if (!timestamp) return t('sync.never');
   const date = new Date(timestamp);
-  return date.toLocaleString('zh-CN');
+  const locale = getCurrentLanguage() === 'zh' ? 'zh-CN' : 'en-US';
+  return date.toLocaleString(locale);
 }
 
 // 更新同步状态显示
@@ -1297,21 +1514,17 @@ async function downloadFromGist() {
 // 上传到云端
 async function uploadToCloud() {
   if (!state.gistToken) {
-    updateSyncStatus('请先配置 Gist Token', 'error');
+    updateSyncStatus(t('sync.needToken'), 'error');
     return;
   }
 
   try {
     // 如果没有 gistId，询问是否创建新的
     if (!state.gistId) {
-      const shouldCreate = confirm(
-        '未检测到 Gist ID。\n\n' +
-        '点击「确定」创建新的 Gist 并上传数据\n' +
-        '点击「取消」取消上传'
-      );
+      const shouldCreate = confirm(t('sync.createGist'));
 
       if (!shouldCreate) {
-        updateSyncStatus('上传已取消', 'info');
+        updateSyncStatus(t('sync.uploadCancelled'), 'info');
         return;
       }
     } else {
@@ -1323,34 +1536,28 @@ async function uploadToCloud() {
 
         // 检查数据是否一致
         if (localHash === remoteHash) {
-          alert('✓ 云端数据与本地数据已一致，无需上传。');
-          updateSyncStatus('云端与本地数据已一致', 'success');
+          alert('✓ ' + t('sync.noUploadNeeded'));
+          updateSyncStatus(t('sync.dataConsistent'), 'success');
           return;
         }
 
         // 检查云端是否比本地新（被其他客户端修改过）
         if (state.lastSyncHash && state.lastSyncHash !== remoteHash && localHash !== remoteHash) {
           const shouldOverwrite = confirm(
-            '云端数据已被其他客户端修改（更新时间：' + formatTime(remote.updatedAt) + '）。\n\n' +
-            '点击「确定」用本地数据覆盖云端\n' +
-            '点击「取消」取消上传'
+            t('sync.remoteModified') + formatTime(remote.updatedAt) + t('sync.confirmOverwriteRemote')
           );
 
           if (!shouldOverwrite) {
-            updateSyncStatus('上传已取消，云端数据未受影响', 'info');
+            updateSyncStatus(t('sync.uploadCancelledNoChange'), 'info');
             return;
           }
         }
       } catch (error) {
         // 无法下载云端数据（可能 Gist 被删除），询问是否创建新的
-        const shouldRecreate = confirm(
-          '无法访问云端 Gist（可能已被删除）。\n\n' +
-          '点击「确定」创建新的 Gist\n' +
-          '点击「取消」取消上传'
-        );
+        const shouldRecreate = confirm(t('sync.gistNotFound'));
 
         if (!shouldRecreate) {
-          updateSyncStatus('上传已取消', 'info');
+          updateSyncStatus(t('sync.uploadCancelled'), 'info');
           return;
         }
 
@@ -1360,7 +1567,7 @@ async function uploadToCloud() {
     }
 
     // 执行上传
-    updateSyncStatus('正在上传...', 'info');
+    updateSyncStatus(t('sync.uploading'), 'info');
     const result = await uploadToGist();
 
     // 更新同步状态
@@ -1373,27 +1580,27 @@ async function uploadToCloud() {
       elements.gistId.value = result.id;
     }
 
-    updateSyncStatus(`上传成功！${formatTime(state.lastSyncTime)}`, 'success');
+    updateSyncStatus(t('sync.uploadSuccess') + formatTime(state.lastSyncTime), 'success');
   } catch (error) {
-    updateSyncStatus(`上传失败：${error.message}`, 'error');
-    console.error('上传失败:', error);
+    updateSyncStatus(t('sync.uploadFailed') + error.message, 'error');
+    console.error('Upload failed:', error);
   }
 }
 
 // 从云端下载
 async function downloadFromCloud() {
   if (!state.gistToken) {
-    updateSyncStatus('请先配置 Gist Token', 'error');
+    updateSyncStatus(t('sync.needToken'), 'error');
     return;
   }
 
   if (!state.gistId) {
-    updateSyncStatus('请先上传数据到云端以创建 Gist', 'error');
+    updateSyncStatus(t('sync.needGistId'), 'error');
     return;
   }
 
   try {
-    updateSyncStatus('正在检查云端数据...', 'info');
+    updateSyncStatus(t('sync.downloading'), 'info');
 
     const remote = await downloadFromGist();
     const remoteData = remote.data;
@@ -1402,25 +1609,20 @@ async function downloadFromCloud() {
 
     // 检查数据是否一致
     if (localHash === remoteHash) {
-      alert('✓ 云端数据与本地数据已一致，无需下载。');
-      updateSyncStatus('云端与本地数据已一致', 'success');
+      alert('✓ ' + t('sync.noDownloadNeeded'));
+      updateSyncStatus(t('sync.dataConsistent'), 'success');
       return;
     }
 
     // 数据不一致，询问是否覆盖
-    const shouldOverwrite = confirm(
-      '⚠️ 即将用云端数据覆盖本地所有数据。\n\n' +
-      '此操作将替换所有聊天记录、话题和配置。\n' +
-      '点击「确定」继续下载并覆盖\n' +
-      '点击「取消」保留本地数据'
-    );
+    const shouldOverwrite = confirm(t('sync.confirmOverwrite'));
 
     if (!shouldOverwrite) {
-      updateSyncStatus('下载已取消，本地数据未受影响', 'info');
+      updateSyncStatus(t('sync.downloadCancelledNoChange'), 'info');
       return;
     }
 
-    updateSyncStatus('正在下载...', 'info');
+    updateSyncStatus(t('sync.downloading'), 'info');
 
     // 用云端数据覆盖本地
     const { gistToken, gistId } = state;
@@ -1436,10 +1638,10 @@ async function downloadFromCloud() {
     saveState();
     render();
 
-    updateSyncStatus(`下载成功！已用云端数据覆盖本地`, 'success');
+    updateSyncStatus(t('sync.downloadSuccess'), 'success');
   } catch (error) {
-    updateSyncStatus(`下载失败：${error.message}`, 'error');
-    console.error('下载失败:', error);
+    updateSyncStatus(t('sync.downloadFailed') + error.message, 'error');
+    console.error('Download failed:', error);
   }
 }
 
@@ -1448,7 +1650,7 @@ function saveGistConfig() {
   state.gistToken = elements.gistToken.value.trim();
   state.gistId = elements.gistId.value.trim();
   saveState();
-  updateSyncStatus('配置已保存', 'success');
+  updateSyncStatus(t('sync.configSaved'), 'success');
 }
 
 // 渲染 Gist 配置
@@ -1457,9 +1659,9 @@ function renderGistConfig() {
   elements.gistId.value = state.gistId || '';
 
   if (state.lastSyncTime) {
-    updateSyncStatus(`上次操作：${formatTime(state.lastSyncTime)}`);
+    updateSyncStatus(t('sync.lastOperation') + formatTime(state.lastSyncTime));
   } else {
-    updateSyncStatus('手动控制数据同步，可选择上传或下载');
+    updateSyncStatus(t('settings.syncStatus'));
   }
 }
 
