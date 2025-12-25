@@ -2,11 +2,97 @@
   <img src="favicon.png" alt="Chatbutte Logo" width="200" height="200">
 </div>
 
+<div align="center">
+  <a href="#english">English</a> | <a href="#中文">中文</a>
+</div>
+
 # Chatbutte
+
+A sleek and elegant pure frontend LLM chat workstation, supporting multi-model configuration, subtopic management, and local data storage.
 
 一个简洁优雅的纯前端 LLM 聊天工作台，支持多模型配置、子话题管理和本地数据存储。
 
-## 功能特性
+---
+
+<a name="english"></a>
+## 🇺🇸 English Version
+
+### Features
+
+- **Multi-model Support** - Configure multiple OpenAI-compatible API models and switch quickly
+- **Subtopic Management** - Create independent topics for different scenarios, each with its own system prompt
+- **Local Data Storage** - All chat history, topics, and configurations are stored in browser localStorage, no server required
+- **Data Import/Export** - Export all data as JSON files or restore from backup files
+- **Streaming Output** - Real-time display of AI responses for better interaction experience
+- **Markdown Rendering** - Full support for Markdown formatting and code syntax highlighting
+- **Message Copy** - Quickly copy message content by hovering
+- **Shortcut Support** - Flexible send shortcut configuration (Enter / Cmd+Enter / Ctrl+Enter / Option+Enter)
+- **Responsive Design** - Perfectly adapted for desktop and mobile, featuring Apple Mac-style design
+- **Internationalization** - Built-in i18n support with Chinese/English language switching
+
+### Quick Start
+
+#### Online Demo
+
+You can directly access the online demo version:
+
+🔗 **[https://liuxl.com.cn/chatbutte](https://liuxl.com.cn/chatbutte)**
+
+#### Direct Use
+
+1. Download the project files
+2. Open `index.html` in your browser to start using
+3. Recommended to use modern browsers like Chrome, Edge, or Safari for the best experience
+
+#### Local Development
+
+```bash
+# Use any static server
+python -m http.server 8000
+# or
+npx serve .
+```
+
+### Configuration
+
+First-time use requires model configuration in "Settings":
+
+1. Click the "Settings" button in the left sidebar
+2. Add a new model in the "Model Configuration" section:
+   - **Name**: Custom model name
+   - **API Address**: OpenAI-compatible API endpoint
+   - **API Key**: API key (optional)
+   - **Model**: Model name (e.g., `gpt-4o-mini`)
+3. Save and start chatting
+
+### Data Security
+
+- All data is stored in browser's localStorage
+- No data is uploaded to any server
+- Source code submitted to GitHub contains no sensitive information
+- Exported JSON backup files contain API Keys - do not share
+
+### Tech Stack
+
+- Pure HTML/CSS/JavaScript, no build tools
+- [Marked.js](https://marked.js.org/) - Markdown parsing
+- [Highlight.js](https://highlightjs.org/) - Code syntax highlighting
+
+### Author
+
+**Abel Liu**
+Email: [sylar19951010@gmail.com](mailto:sylar19951010@gmail.com)
+
+### License
+
+MIT License
+
+---
+
+<a name="中文"></a>
+## 🇨🇳 中文版本
+
+### 功能特性
 
 - **多模型支持** - 配置多个 OpenAI 兼容的 API 模型，快速切换
 - **子话题管理** - 为不同场景创建独立话题，每个话题可设置专属系统提示词
@@ -17,22 +103,23 @@
 - **消息复制** - 鼠标悬停即可快速复制消息内容
 - **快捷键支持** - 灵活配置发送快捷键（Enter / Cmd+Enter / Ctrl+Enter / Option+Enter）
 - **响应式设计** - 完美适配桌面端和移动端，采用 Apple Mac 风格设计
+- **国际化支持** - 内置中英文双语切换功能
 
-## 快速开始
+### 快速开始
 
-### 在线体验
+#### 在线体验
 
 您可以直接访问在线演示版本：
 
 🔗 **[https://liuxl.com.cn/chatbutte](https://liuxl.com.cn/chatbutte)**
 
-### 直接使用
+#### 直接使用
 
 1. 下载项目文件
 2. 用浏览器打开 `index.html` 即可使用
 3. 推荐使用 Chrome、Edge 或 Safari 等现代浏览器以获得最佳体验
 
-### 本地开发
+#### 本地开发
 
 ```bash
 # 使用任意静态服务器
@@ -41,7 +128,7 @@ python -m http.server 8000
 npx serve .
 ```
 
-## 配置说明
+### 配置说明
 
 首次使用需要在「设置」中配置模型：
 
@@ -53,24 +140,24 @@ npx serve .
    - **模型**：模型名称（如 `gpt-4o-mini`）
 3. 保存后即可开始对话
 
-## 数据安全
+### 数据安全
 
 - 所有数据存储在浏览器的 localStorage 中
 - 不会上传到任何服务器
 - 提交到 GitHub 的源代码不包含任何敏感信息
 - 导出的 JSON 备份文件包含 API Key，请勿分享
 
-## 技术栈
+### 技术栈
 
 - 纯 HTML/CSS/JavaScript，无构建工具
 - [Marked.js](https://marked.js.org/) - Markdown 解析
 - [Highlight.js](https://highlightjs.org/) - 代码语法高亮
 
-## 作者
+### 作者
 
 **Abel Liu**
 Email: [sylar19951010@gmail.com](mailto:sylar19951010@gmail.com)
 
-## 许可证
+### 许可证
 
 MIT License
