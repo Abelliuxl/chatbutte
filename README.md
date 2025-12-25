@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="favicon.png" alt="Chatbutte Logo" width="200" height="200">
+</div>
+
 # Chatbutte
 
 一个简洁优雅的纯前端 LLM 聊天工作台，支持多模型配置、子话题管理和本地数据存储。
