@@ -2,11 +2,33 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chatbutte LLM Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ececef" id="themeColorMeta" />
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('chatbutte_state_v1');
+          if (!raw) return;
+          var parsed = JSON.parse(raw);
+          var theme = (parsed.settings && parsed.settings.theme) || 'system';
+          var resolved = theme;
+          if (theme === 'system') {
+            resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', resolved);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.content = resolved === 'dark' ? '#1c1c1e' : '#ececef';
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Chatbutte</title>
     <link rel="icon" type="image/png" href="favicon.png" />
-    <link rel="stylesheet" href="libs/github.min.css" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="favicon.png" />
+    <link rel="stylesheet" href="libs/github.min.css?v=20260409-1" />
+    <link rel="stylesheet" href="styles.css?v=20260612-14" />
     <style>
       /* 避免窄屏时侧栏闪现：在页面渲染前就应用隐藏样式 */
       @media (max-width: 980px) {
@@ -27,17 +49,19 @@
     </style>
   </head>
   <body>
-    <div class="bg-orb orb-1"></div>
-    <div class="bg-orb orb-2"></div>
-    <div class="bg-grid"></div>
+    <div class="chat-shell">
+      <header class="titlebar">
+        <div class="traffic-lights" aria-hidden="true">
+          <span class="traffic-light close"></span>
+          <span class="traffic-light minimize"></span>
+          <span class="traffic-light zoom"></span>
+        </div>
+        <div class="titlebar-title" id="windowTitle">Chatbutte</div>
+        <div class="titlebar-spacer"></div>
+      </header>
 
+      <div class="chat-body">
     <aside class="sidebar">
-      <button class="icon-btn sidebar-close" id="sidebarClose" title="关闭话题列表">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
       <div class="brand">
         <span class="brand-mark">C</span>
         <div>
@@ -48,8 +72,18 @@
 
       <div class="sidebar-section">
         <div class="section-header">
-          <h3>子话题</h3>
-          <button class="icon-btn" id="addTopicBtn" title="新增子话题">＋</button>
+          <h3>聊天</h3>
+          <div class="section-header-actions">
+            <button class="icon-btn" id="addTopicBtn" title="新增子话题" aria-label="新增子话题">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <button class="icon-btn sidebar-close" id="sidebarClose" title="关闭话题列表" aria-label="关闭话题列表">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
         </div>
         <div class="topic-list" id="topicList"></div>
       </div>
@@ -84,6 +118,8 @@
                   <label for="profileSelect">模型</label>
                   <select id="profileSelect"></select>
                 </div>
+                <button class="header-text-btn" id="newChatBtn" type="button">清除上下文</button>
+                <button class="header-text-btn accent" id="clearChatBtn" type="button">清除</button>
               </div>
             </div>
             <p id="topicPromptPreview">请选择或创建一个子话题，并填写系统提示词。</p>
@@ -93,114 +129,216 @@
         <section class="messages" id="messages"></section>
 
         <footer class="composer">
-          <textarea
-            id="messageInput"
-            placeholder="输入消息..."
-            rows="3"
-          ></textarea>
-          <div class="composer-main">
-            <div class="composer-left">
-              <button class="ghost-btn" id="clearChatBtn">清空对话</button>
-              <button class="ghost-btn" id="newChatBtn">清除上下文</button>
+          <div class="composer-attachments" id="attachmentList"></div>
+          <div class="composer-input-bar">
+            <textarea id="messageInput" placeholder="输入或按 Enter 发送..." rows="1"></textarea>
+            <div class="composer-input-actions">
+              <button class="icon-btn" id="attachBtn" type="button" title="上传图片/文件" aria-label="上传图片/文件">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <path d="m21 15-5-5L5 21"></path>
+                </svg>
+              </button>
+              <button class="primary-btn" id="sendBtn" type="button" title="发送" aria-label="发送">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
             </div>
-            <div class="composer-right">
-              <span class="hint" id="sendHint"></span>
-              <button class="primary-btn" id="sendBtn">发送</button>
-            </div>
+            <input type="file" id="attachmentInput" multiple hidden />
           </div>
+          <span class="hint" id="sendHint"></span>
+          <div class="composer-main" hidden></div>
         </footer>
       </main>
     </div>
+      </div>
+    </div>
 
     <div class="modal" id="settingsModal" aria-hidden="true">
-      <div class="modal-content">
-        <div class="modal-header">
+      <div class="modal-content settings-modal">
+        <div class="modal-header settings-modal-header">
           <h3>设置</h3>
           <button class="icon-btn" id="closeSettingsBtn">✕</button>
         </div>
-        <div class="modal-body">
-          <section class="settings-section">
-            <div class="section-title">模型配置</div>
-            <div id="profileList" class="profile-list"></div>
-            <form id="profileForm" class="card form-card">
-              <input type="hidden" id="profileId" />
-              <div class="field">
-                <label for="profileUrl">API 地址</label>
-                <input
-                  id="profileUrl"
-                  type="url"
-                  required
-                  placeholder="https://api.openai.com/v1/chat/completions"
-                />
+        <div class="settings-tabs" role="tablist">
+          <div class="settings-tabs-inner">
+            <button class="settings-tab active" type="button" data-tab="models" id="settingsTabModels" role="tab" aria-selected="true">模型</button>
+            <button class="settings-tab" type="button" data-tab="appearance" id="settingsTabAppearance" role="tab" aria-selected="false">外观</button>
+            <button class="settings-tab" type="button" data-tab="send" id="settingsTabSend" role="tab" aria-selected="false">发送</button>
+            <button class="settings-tab" type="button" data-tab="sync" id="settingsTabSync" role="tab" aria-selected="false">同步</button>
+            <button class="settings-tab" type="button" data-tab="data" id="settingsTabData" role="tab" aria-selected="false">数据</button>
+          </div>
+        </div>
+        <div class="settings-panels">
+          <section class="settings-panel active" data-panel="models" role="tabpanel">
+            <div id="profileForm" class="settings-form-rows">
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="settingsProfileSelectLabel">模型配置</div>
+                </div>
+                <div class="settings-row-control settings-row-control-split">
+                  <select id="settingsProfileSelect"></select>
+                  <button class="settings-link-btn" type="button" id="profileDeleteBtn">删除</button>
+                </div>
               </div>
-              <div class="field">
-                <label for="profileKey">API Key</label>
-                <input id="profileKey" type="password" placeholder="可留空" />
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="profileTypeLabel">类型</div>
+                </div>
+                <div class="settings-row-control">
+                  <select id="profileType">
+                    <option value="chat">对话</option>
+                    <option value="image">生图</option>
+                  </select>
+                </div>
               </div>
-              <div class="field">
-                <label for="profileModel">模型</label>
-                <input id="profileModel" type="text" required placeholder="例如: gpt-4o-mini" />
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="profileNameLabel">名称</div>
+                  <div class="settings-row-desc" id="profileNameDesc">留空则显示模型名</div>
+                </div>
+                <div class="settings-row-control">
+                  <input id="profileName" type="text" placeholder="可选" />
+                </div>
               </div>
-              <div class="form-actions">
-                <button class="ghost-btn" type="button" id="profileCancelBtn">取消</button>
-                <button class="primary-btn" type="submit" id="profileSaveBtn">保存模型</button>
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="profileKeyLabel">API Key</div>
+                </div>
+                <div class="settings-row-control">
+                  <input id="profileKey" type="password" placeholder="可留空" />
+                </div>
               </div>
-            </form>
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="profileUrlLabel">API 地址</div>
+                </div>
+                <div class="settings-row-control">
+                  <input id="profileUrl" type="url" placeholder="https://api.openai.com/v1/chat/completions" />
+                </div>
+              </div>
+              <div class="settings-row settings-row-last">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="profileModelLabel">模型</div>
+                </div>
+                <div class="settings-row-control">
+                  <input id="profileModel" type="text" placeholder="gpt-4o-mini" />
+                </div>
+              </div>
+            </div>
+            <div class="muted settings-panel-hint" id="profileFormHint">每个配置只能选择对话或生图其中一种，保存后在右上角切换使用。</div>
           </section>
 
-          <section class="settings-section">
-            <div class="section-title">发送设置</div>
-            <div class="card">
-              <div class="field">
-                <label for="sendKeySelect">发送按键</label>
-                <select id="sendKeySelect">
-                  <option value="enter">Enter 发送</option>
-                  <option value="cmd">Cmd + Enter 发送</option>
-                  <option value="ctrl">Ctrl + Enter 发送</option>
-                  <option value="alt">Option/Alt + Enter 发送</option>
-                </select>
-                <div class="muted">Mac: Cmd / Ctrl / Option，Windows: Ctrl / Alt</div>
+          <section class="settings-panel" data-panel="appearance" role="tabpanel">
+            <div class="settings-form-rows">
+              <div class="settings-row settings-row-last">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="themeRowTitle">外观模式</div>
+                  <div class="settings-row-desc" id="themeRowDesc">选择浅色、深色或跟随系统</div>
+                </div>
+                <div class="settings-row-control">
+                  <select id="themeSelect">
+                    <option value="system">跟随系统</option>
+                    <option value="light">浅色</option>
+                    <option value="dark">深色</option>
+                  </select>
+                </div>
               </div>
             </div>
           </section>
 
-          <section class="settings-section">
-            <div class="section-title">云同步</div>
-            <div class="card">
-              <div class="field">
-                <label for="gistToken">GitHub Gist Token</label>
-                <input id="gistToken" type="password" placeholder="ghp_xxxxxxxxxxxx" />
-                <div class="muted">需要在 GitHub 创建具有 gist 权限的 Personal Access Token</div>
+          <section class="settings-panel" data-panel="send" role="tabpanel">
+            <div class="settings-form-rows">
+              <div class="settings-row settings-row-last">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="sendKeyRowTitle">发送按键</div>
+                  <div class="settings-row-desc" id="sendKeyRowDesc">选择用哪个快捷键发送消息</div>
+                </div>
+                <div class="settings-row-control">
+                  <select id="sendKeySelect">
+                    <option value="enter">Enter 发送</option>
+                    <option value="cmd">Cmd + Enter 发送</option>
+                    <option value="ctrl">Ctrl + Enter 发送</option>
+                    <option value="alt">Option/Alt + Enter 发送</option>
+                  </select>
+                </div>
               </div>
-              <div class="field">
-                <label for="gistId">Gist ID</label>
-                <input id="gistId" type="text" placeholder="首次同步将自动创建" />
-                <div class="muted">自动创建的 Gist ID，保存后即可使用云同步功能</div>
+            </div>
+            <div class="settings-panel-hint" id="sendKeyHint">Mac: Cmd / Ctrl / Option，Windows: Ctrl / Alt</div>
+          </section>
+
+          <section class="settings-panel" data-panel="sync" role="tabpanel">
+            <div class="settings-form-rows">
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="gistTokenLabel">GitHub Gist Token</div>
+                  <div class="settings-row-desc" id="gistTokenDesc">需要具有 gist 权限的 Token</div>
+                </div>
+                <div class="settings-row-control">
+                  <input id="gistToken" type="password" placeholder="ghp_xxxxxxxxxxxx" />
+                </div>
               </div>
-              <div class="form-actions">
-                <button class="ghost-btn" id="uploadBtn">上传到云端</button>
-                <button class="ghost-btn" id="downloadBtn">从云端下载</button>
-                <button class="ghost-btn" id="saveGistBtn">保存配置</button>
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="gistIdLabel">Gist ID</div>
+                  <div class="settings-row-desc" id="gistIdDesc">首次同步将自动创建</div>
+                </div>
+                <div class="settings-row-control">
+                  <input id="gistId" type="text" placeholder="自动创建" />
+                </div>
               </div>
-              <div class="muted" id="syncStatus">手动控制数据同步，可选择上传或下载</div>
+              <div class="settings-row settings-row-actions">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="syncActionTitle">手动同步</div>
+                  <div class="settings-row-desc" id="syncStatus">可选择上传或下载</div>
+                </div>
+                <div class="settings-row-control settings-row-control-split">
+                  <button class="settings-action-btn" type="button" id="uploadBtn">上传</button>
+                  <button class="settings-action-btn" type="button" id="downloadBtn">下载</button>
+                </div>
+              </div>
             </div>
           </section>
 
-          <section class="settings-section">
-            <div class="section-title">数据管理</div>
-            <div class="card">
-              <div class="form-actions">
-                <button class="ghost-btn" id="importBtn">导入数据</button>
-                <button class="primary-btn" id="exportBtn">导出数据</button>
+          <section class="settings-panel" data-panel="data" role="tabpanel">
+            <div class="settings-form-rows">
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="dataImportTitle">导入数据</div>
+                  <div class="settings-row-desc" id="dataImportDesc">从 JSON 恢复聊天记录与配置</div>
+                </div>
+                <div class="settings-row-control">
+                  <button class="settings-action-btn" type="button" id="importBtn">选择文件</button>
+                </div>
               </div>
-              <input type="file" id="importFileInput" accept=".json" style="display: none;" />
-              <div class="muted">导出会将所有数据保存为 JSON 文件，导入可恢复聊天记录、话题、模型配置等所有数据。</div>
-            </div>
-            <div class="card card-center" style="margin-top: 12px;">
-              <button class="ghost-btn" id="resetBtn" style="color: #9f2d1f;">一键重置所有数据</button>
-              <div class="muted">清空所有聊天记录、话题、模型配置，恢复到初始状态。</div>
+              <div class="settings-row">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="dataExportTitle">导出数据</div>
+                  <div class="settings-row-desc" id="dataExportDesc">保存全部数据为 JSON</div>
+                </div>
+                <div class="settings-row-control">
+                  <button class="settings-action-btn" type="button" id="exportBtn">导出</button>
+                </div>
+              </div>
+              <input type="file" id="importFileInput" accept=".json" hidden />
+              <div class="settings-row settings-row-danger settings-row-last">
+                <div class="settings-row-label">
+                  <div class="settings-row-title" id="dataResetTitle">重置所有数据</div>
+                  <div class="settings-row-desc" id="dataResetHint">清空聊天记录、话题与模型配置</div>
+                </div>
+                <div class="settings-row-control">
+                  <button class="settings-action-btn settings-action-btn-danger" type="button" id="resetBtn">重置</button>
+                </div>
+              </div>
             </div>
           </section>
+        </div>
+        <div class="settings-footer">
+          <button class="ghost-btn" type="button" id="settingsCancelBtn">取消</button>
+          <button class="primary-btn settings-save-btn" type="button" id="settingsSaveBtn">存储</button>
         </div>
       </div>
     </div>
@@ -246,11 +384,11 @@
       </div>
     </div>
 
-    <script src="libs/marked.min.js"></script>
-    <script src="libs/highlight.min.js"></script>
-    <script src="i18n.js"></script>
-    <script src="reasoning-parser.js"></script>
-    <script src="reasoning-ui.js"></script>
-    <script src="app.js"></script>
+    <script src="libs/marked.min.js?v=20260409-1"></script>
+    <script src="libs/highlight.min.js?v=20260409-1"></script>
+    <script src="i18n.js?v=20260612-16"></script>
+    <script src="reasoning-parser.js?v=20260409-1"></script>
+    <script src="reasoning-ui.js?v=20260612-4"></script>
+    <script src="app.js?v=20260612-17"></script>
   </body>
 </html>

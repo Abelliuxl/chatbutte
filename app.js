@@ -1,4 +1,8 @@
 const STORAGE_KEY = 'chatbutte_state_v1';
+const MAX_ATTACHMENTS = 5;
+const MAX_IMAGE_SIZE = 3 * 1024 * 1024;
+const MAX_TEXT_FILE_SIZE = 200 * 1024;
+const INLINE_TEXT_PREVIEW_LIMIT = 50000;
 
 if (window.marked) {
   marked.setOptions({
@@ -23,6 +27,7 @@ const defaultState = {
   activeTopicId: null,
   settings: {
     sendKey: 'enter',
+    theme: 'system',
   },
   messagesByTopic: {},
   // 云同步配置
@@ -40,6 +45,9 @@ const elements = {
   messageInput: document.getElementById('messageInput'),
   sendBtn: document.getElementById('sendBtn'),
   sendHint: document.getElementById('sendHint'),
+  attachBtn: document.getElementById('attachBtn'),
+  attachmentInput: document.getElementById('attachmentInput'),
+  attachmentList: document.getElementById('attachmentList'),
   profileSelect: document.getElementById('profileSelect'),
   clearChatBtn: document.getElementById('clearChatBtn'),
   newChatBtn: document.getElementById('newChatBtn'),
@@ -47,15 +55,19 @@ const elements = {
   settingsBtn: document.getElementById('settingsBtn'),
   settingsModal: document.getElementById('settingsModal'),
   closeSettingsBtn: document.getElementById('closeSettingsBtn'),
-  profileList: document.getElementById('profileList'),
   profileForm: document.getElementById('profileForm'),
-  profileId: document.getElementById('profileId'),
+  settingsProfileSelect: document.getElementById('settingsProfileSelect'),
+  profileDeleteBtn: document.getElementById('profileDeleteBtn'),
   profileName: document.getElementById('profileName'),
   profileUrl: document.getElementById('profileUrl'),
   profileKey: document.getElementById('profileKey'),
   profileModel: document.getElementById('profileModel'),
-  profileCancelBtn: document.getElementById('profileCancelBtn'),
+  profileType: document.getElementById('profileType'),
+  profileName: document.getElementById('profileName'),
+  settingsSaveBtn: document.getElementById('settingsSaveBtn'),
+  settingsCancelBtn: document.getElementById('settingsCancelBtn'),
   sendKeySelect: document.getElementById('sendKeySelect'),
+  themeSelect: document.getElementById('themeSelect'),
   topicModal: document.getElementById('topicModal'),
   topicModalTitle: document.getElementById('topicModalTitle'),
   closeTopicBtn: document.getElementById('closeTopicBtn'),
@@ -80,42 +92,232 @@ const elements = {
   gistId: document.getElementById('gistId'),
   uploadBtn: document.getElementById('uploadBtn'),
   downloadBtn: document.getElementById('downloadBtn'),
-  saveGistBtn: document.getElementById('saveGistBtn'),
   syncStatus: document.getElementById('syncStatus'),
   // 语言切换器
   langOptions: document.querySelectorAll('.lang-option'),
+  windowTitle: document.getElementById('windowTitle'),
 };
 
-let state = loadState();
+let state = structuredClone(defaultState);
+let draftAttachments = [];
+let settingsDraft = null;
+let themeMediaQuery = null;
+let saveStateTimer = null;
+let storageErrorNotified = false;
+let sendInFlight = false;
 
-function loadState() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return structuredClone(defaultState);
+const STORAGE_BACKUP_KEY = `${STORAGE_KEY}_backup`;
+
+const VALID_THEMES = new Set(['system', 'light', 'dark']);
+
+function resolveThemePreference() {
+  const theme = state.settings.theme || 'system';
+  if (theme === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      ...structuredClone(defaultState),
-      ...parsed,
-      settings: { ...structuredClone(defaultState.settings), ...(parsed.settings || {}) },
-      messagesByTopic: parsed.messagesByTopic || {},
-    };
-  } catch (error) {
-    return structuredClone(defaultState);
+  return theme === 'dark' ? 'dark' : 'light';
+}
+
+function updateThemeColor(resolved) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    meta.content = resolved === 'dark' ? '#1c1c1e' : '#ececef';
   }
 }
 
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function applyTheme() {
+  const resolved = resolveThemePreference();
+  document.documentElement.setAttribute('data-theme', resolved);
+  document.documentElement.style.colorScheme = resolved;
+  updateThemeColor(resolved);
+}
+
+function onSystemThemeChange() {
+  if ((state.settings.theme || 'system') === 'system') {
+    applyTheme();
+  }
+}
+
+function setupThemeListener() {
+  if (!themeMediaQuery) {
+    themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  }
+  themeMediaQuery.removeEventListener('change', onSystemThemeChange);
+  if ((state.settings.theme || 'system') === 'system') {
+    themeMediaQuery.addEventListener('change', onSystemThemeChange);
+  }
+}
+
+function isStorageWritable() {
+  try {
+    const probeKey = `${STORAGE_KEY}_probe`;
+    localStorage.setItem(probeKey, '1');
+    localStorage.removeItem(probeKey);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function mergeParsedState(parsed) {
+  const settings = { ...structuredClone(defaultState.settings), ...(parsed.settings || {}) };
+  delete settings.composerMode;
+  if (!VALID_THEMES.has(settings.theme)) {
+    settings.theme = 'system';
+  }
+  return {
+    ...structuredClone(defaultState),
+    ...parsed,
+    profiles: migrateProfiles(parsed.profiles || []),
+    settings,
+    topics: Array.isArray(parsed.topics) ? parsed.topics : [],
+    messagesByTopic: parsed.messagesByTopic && typeof parsed.messagesByTopic === 'object'
+      ? parsed.messagesByTopic
+      : {},
+  };
+}
+
+function loadStateFromRaw(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return mergeParsedState(parsed);
+  } catch (error) {
+    console.error('Failed to parse saved state:', error);
+    return null;
+  }
+}
+
+function loadStateFromLocalStorage() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  const loaded = loadStateFromRaw(raw);
+  if (loaded) return loaded;
+
+  const backup = localStorage.getItem(STORAGE_BACKUP_KEY);
+  return loadStateFromRaw(backup);
+}
+
+function hydrateState() {
+  state = loadStateFromLocalStorage() || structuredClone(defaultState);
+}
+
+function prepareStateForStorage(src) {
+  const copy = JSON.parse(JSON.stringify(src));
+  Object.values(copy.messagesByTopic || {}).forEach((messages) => {
+    if (!Array.isArray(messages)) return;
+    messages.forEach((message) => {
+      if (!Array.isArray(message.attachments)) return;
+      message.attachments = message.attachments.map((attachment) => {
+        const slim = { ...attachment };
+        if (slim.dataUrl) {
+          slim.hadDataUrl = true;
+          delete slim.dataUrl;
+        }
+        if (typeof slim.textContent === 'string' && slim.textContent.length > 4000) {
+          slim.textContent = `${slim.textContent.slice(0, 4000)}\n...[truncated]`;
+          slim.truncated = true;
+        }
+        if (typeof slim.previewText === 'string' && slim.previewText.length > 4000) {
+          slim.previewText = `${slim.previewText.slice(0, 4000)}\n...[truncated]`;
+          slim.truncated = true;
+        }
+        return slim;
+      });
+    });
+  });
+  return copy;
+}
+
+function notifyStorageError(error) {
+  console.error('Failed to persist state:', error);
+  if (storageErrorNotified) return;
+  storageErrorNotified = true;
+  const message = error?.name === 'QuotaExceededError'
+    ? t('error.storageQuota')
+    : t('error.storageUnavailable');
+  window.setTimeout(() => alert(message), 0);
+}
+
+function flushSaveState() {
+  if (!isStorageWritable()) {
+    notifyStorageError(new Error('Storage unavailable'));
+    return;
+  }
+
+  const serialized = JSON.stringify(prepareStateForStorage(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, serialized);
+    localStorage.setItem(STORAGE_BACKUP_KEY, serialized);
+  } catch (error) {
+    notifyStorageError(error);
+  }
+}
+
+function saveState({ immediate = false } = {}) {
+  if (immediate) {
+    clearTimeout(saveStateTimer);
+    saveStateTimer = null;
+    flushSaveState();
+    return;
+  }
+
+  clearTimeout(saveStateTimer);
+  saveStateTimer = window.setTimeout(() => {
+    saveStateTimer = null;
+    flushSaveState();
+  }, 300);
 }
 
 function ensureActiveSelections() {
-  if (!state.activeTopicId && state.topics.length) {
-    state.activeTopicId = state.topics[0].id;
+  const hasActiveTopic = state.topics.some((topic) => topic.id === state.activeTopicId);
+  if (!hasActiveTopic) {
+    state.activeTopicId = state.topics[0]?.id || null;
   }
-  if (!state.activeProfileId && state.profiles.length) {
-    state.activeProfileId = state.profiles[0].id;
+  const hasActiveProfile = state.profiles.some((profile) => profile.id === state.activeProfileId);
+  if (!hasActiveProfile) {
+    state.activeProfileId = state.profiles[0]?.id || null;
+  }
+}
+
+function ensureTopicForSend(seedText, attachments) {
+  ensureActiveSelections();
+  const existing = getActiveTopic();
+  if (existing) return existing;
+
+  const topicId = createId('topic');
+  const topic = {
+    id: topicId,
+    name: buildFallbackTopicName(seedText, attachments),
+    prompt: '',
+    historyCount: 12,
+    temperature: 0.7,
+    activeProfileId: state.activeProfileId,
+  };
+  state.topics.push(topic);
+  state.activeTopicId = topicId;
+  if (!state.messagesByTopic[topicId]) {
+    state.messagesByTopic[topicId] = [];
+  }
+  saveState({ immediate: true });
+  renderTopics();
+  renderTopicHeader();
+  return topic;
+}
+
+async function refineTopicName(topicId, seedText, profile) {
+  if (!isChatProfile(profile) || !seedText.trim()) return;
+  try {
+    const generated = await generateTopicName(seedText, profile);
+    const topic = state.topics.find((item) => item.id === topicId);
+    if (!topic) return;
+    const nextName = generated.trim().slice(0, 40);
+    if (!nextName || nextName === topic.name) return;
+    topic.name = nextName;
+    saveState();
+    renderTopics();
+    renderTopicHeader();
+  } catch (error) {
+    console.warn('Topic name generation failed:', error);
   }
 }
 
@@ -132,8 +334,541 @@ function closeModal(modal) {
   modal.setAttribute('aria-hidden', 'true');
 }
 
+function setSettingsTab(tabId) {
+  const currentTab = document.querySelector('.settings-tab.active')?.dataset.tab;
+  if (currentTab === 'models') captureProfileFormDraft();
+
+  const tabs = document.querySelectorAll('.settings-tab');
+  const panels = document.querySelectorAll('.settings-panel');
+  tabs.forEach((tab) => {
+    const active = tab.dataset.tab === tabId;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  panels.forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.panel === tabId);
+  });
+}
+
+function readProfileFormFields() {
+  return {
+    type: elements.profileType.value === 'image' ? 'image' : 'chat',
+    name: elements.profileName.value.trim(),
+    apiUrl: elements.profileUrl.value.trim(),
+    apiKey: elements.profileKey.value.trim(),
+    model: elements.profileModel.value.trim(),
+  };
+}
+
+function fillSettingsProfileForm(profile) {
+  elements.profileType.value = profile.type === 'image' ? 'image' : 'chat';
+  elements.profileName.value = profile.name || '';
+  elements.profileUrl.value = profile.apiUrl || '';
+  elements.profileKey.value = profile.apiKey || '';
+  elements.profileModel.value = profile.model || '';
+  updateProfileFormHints();
+}
+
+function resetSettingsProfileForm() {
+  elements.profileType.value = 'chat';
+  elements.profileName.value = '';
+  elements.profileUrl.value = '';
+  elements.profileKey.value = '';
+  elements.profileModel.value = '';
+  updateProfileFormHints();
+}
+
+function captureProfileFormDraft() {
+  if (!settingsDraft || !elements.settingsProfileSelect) return;
+  const value = elements.settingsProfileSelect.value;
+  const fields = readProfileFormFields();
+  if (value === '__new__') {
+    settingsDraft.pendingNewProfile = fields;
+    return;
+  }
+  const profile = settingsDraft.profiles.find((item) => item.id === value);
+  if (profile) Object.assign(profile, fields);
+}
+
+function renderSettingsProfileSelect() {
+  const select = elements.settingsProfileSelect;
+  if (!select || !settingsDraft) return;
+  const current = select.value;
+  select.innerHTML = '';
+  settingsDraft.profiles.forEach((profile) => {
+    const option = document.createElement('option');
+    option.value = profile.id;
+    const typeLabel = isImageProfile(profile) ? t('profile.type.image') : t('profile.type.chat');
+    option.textContent = `${getProfileLabel(profile)} · ${typeLabel}`;
+    select.appendChild(option);
+  });
+  const newOption = document.createElement('option');
+  newOption.value = '__new__';
+  newOption.textContent = t('settings.profileNew');
+  select.appendChild(newOption);
+  if (current && [...select.options].some((option) => option.value === current)) {
+    select.value = current;
+  }
+}
+
+function onSettingsProfileSelectChange() {
+  captureProfileFormDraft();
+  const value = elements.settingsProfileSelect.value;
+  if (value === '__new__') {
+    if (settingsDraft?.pendingNewProfile) {
+      fillSettingsProfileForm({
+        type: 'chat',
+        name: '',
+        apiUrl: '',
+        apiKey: '',
+        model: '',
+        ...settingsDraft.pendingNewProfile,
+      });
+    } else {
+      resetSettingsProfileForm();
+    }
+    elements.profileDeleteBtn.disabled = true;
+    return;
+  }
+  const profile = settingsDraft?.profiles.find((item) => item.id === value);
+  if (profile) fillSettingsProfileForm(profile);
+  elements.profileDeleteBtn.disabled = false;
+}
+
+function deleteSettingsProfileDraft() {
+  const value = elements.settingsProfileSelect?.value;
+  if (!value || value === '__new__' || !settingsDraft) return;
+  if (!confirm(t('profile.deleteConfirm'))) return;
+  settingsDraft.profiles = settingsDraft.profiles.filter((profile) => profile.id !== value);
+  settingsDraft.pendingNewProfile = null;
+  renderSettingsProfileSelect();
+  if (settingsDraft.profiles.length) {
+    elements.settingsProfileSelect.value = settingsDraft.profiles[0].id;
+    fillSettingsProfileForm(settingsDraft.profiles[0]);
+    elements.profileDeleteBtn.disabled = false;
+  } else {
+    elements.settingsProfileSelect.value = '__new__';
+    resetSettingsProfileForm();
+    elements.profileDeleteBtn.disabled = true;
+  }
+}
+
+function openSettingsModal(preselectProfileId = null) {
+  settingsDraft = {
+    profiles: state.profiles.map((profile) => ({ ...profile })),
+    pendingNewProfile: null,
+  };
+
+  elements.sendKeySelect.value = state.settings.sendKey;
+  if (elements.themeSelect) {
+    elements.themeSelect.value = state.settings.theme || 'system';
+  }
+  elements.gistToken.value = state.gistToken || '';
+  elements.gistId.value = state.gistId || '';
+  if (state.lastSyncTime) {
+    updateSyncStatus(t('sync.lastOperation') + formatTime(state.lastSyncTime));
+  } else {
+    updateSyncStatus(t('settings.syncStatus'));
+  }
+
+  renderSettingsProfileSelect();
+
+  if (preselectProfileId && settingsDraft.profiles.some((profile) => profile.id === preselectProfileId)) {
+    elements.settingsProfileSelect.value = preselectProfileId;
+    fillSettingsProfileForm(settingsDraft.profiles.find((profile) => profile.id === preselectProfileId));
+    elements.profileDeleteBtn.disabled = false;
+  } else if (settingsDraft.profiles.length) {
+    elements.settingsProfileSelect.value = settingsDraft.profiles[0].id;
+    fillSettingsProfileForm(settingsDraft.profiles[0]);
+    elements.profileDeleteBtn.disabled = false;
+  } else {
+    elements.settingsProfileSelect.value = '__new__';
+    resetSettingsProfileForm();
+    elements.profileDeleteBtn.disabled = true;
+  }
+
+  setSettingsTab('models');
+  openModal(elements.settingsModal);
+}
+
+function cancelSettingsModal() {
+  settingsDraft = null;
+  closeModal(elements.settingsModal);
+}
+
+function saveAllSettings() {
+  if (!settingsDraft) return;
+
+  captureProfileFormDraft();
+
+  const selectValue = elements.settingsProfileSelect.value;
+  if (selectValue === '__new__') {
+    const fields = readProfileFormFields();
+    const hasInput = fields.apiUrl || fields.model || fields.name || fields.apiKey;
+    if (hasInput) {
+      if (!fields.apiUrl || !fields.model) {
+        alert(t('error.profileIncomplete'));
+        setSettingsTab('models');
+        return;
+      }
+      const newProfile = { id: createId('profile'), ...fields };
+      settingsDraft.profiles.push(newProfile);
+      state.activeProfileId = newProfile.id;
+    }
+  }
+
+  for (const profile of settingsDraft.profiles) {
+    if (!profile.apiUrl || !profile.model) {
+      alert(t('error.profileIncomplete'));
+      setSettingsTab('models');
+      elements.settingsProfileSelect.value = profile.id;
+      fillSettingsProfileForm(profile);
+      elements.profileDeleteBtn.disabled = false;
+      return;
+    }
+  }
+
+  state.profiles = settingsDraft.profiles.map((profile) => ({ ...profile }));
+  state.settings.sendKey = elements.sendKeySelect.value;
+  const themeValue = elements.themeSelect?.value || 'system';
+  state.settings.theme = VALID_THEMES.has(themeValue) ? themeValue : 'system';
+  state.gistToken = elements.gistToken.value.trim();
+  state.gistId = elements.gistId.value.trim();
+
+  if (!state.profiles.find((profile) => profile.id === state.activeProfileId)) {
+    state.activeProfileId = state.profiles[0]?.id || null;
+  }
+
+  updateSendHint();
+  applyTheme();
+  setupThemeListener();
+  saveState({ immediate: true });
+  render();
+  settingsDraft = null;
+  closeModal(elements.settingsModal);
+}
+
 function createId(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function formatFileSize(size) {
+  if (!Number.isFinite(size) || size <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = size;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function deriveImageApiUrl(apiUrl) {
+  if (!apiUrl) return '';
+  if (apiUrl.includes('/chat/completions')) {
+    return apiUrl.replace('/chat/completions', '/images/generations');
+  }
+  if (apiUrl.includes('/responses')) {
+    return apiUrl.replace('/responses', '/images/generations');
+  }
+  if (apiUrl.includes('/multimodal-generation/generation')) {
+    return apiUrl;
+  }
+  if (apiUrl.includes('/text2image/image-synthesis')) {
+    return apiUrl;
+  }
+  return '';
+}
+
+function normalizeProfile(profile) {
+  if (profile.type === 'chat' || profile.type === 'image') {
+    return {
+      id: profile.id,
+      name: profile.name || '',
+      type: profile.type,
+      apiUrl: profile.apiUrl || '',
+      apiKey: profile.apiKey || '',
+      model: profile.model || '',
+    };
+  }
+
+  const chatReady = Boolean(profile.apiUrl && profile.model);
+  const imageApiUrl = (profile.imageApiUrl || deriveImageApiUrl(profile.apiUrl) || '').trim();
+  const imageModel = (profile.imageModel || profile.model || '').trim();
+  const imageReady = Boolean(imageApiUrl && imageModel);
+  const hadExplicitImage = Boolean((profile.imageApiUrl || '').trim() || (profile.imageModel || '').trim());
+
+  if (imageReady && !chatReady) {
+    return {
+      id: profile.id,
+      name: profile.name || imageModel,
+      type: 'image',
+      apiUrl: imageApiUrl,
+      apiKey: profile.apiKey || '',
+      model: imageModel,
+    };
+  }
+
+  return {
+    id: profile.id,
+    name: profile.name || profile.model || '',
+    type: 'chat',
+    apiUrl: profile.apiUrl || '',
+    apiKey: profile.apiKey || '',
+    model: profile.model || '',
+    _legacyImage: hadExplicitImage || (imageReady && imageApiUrl !== profile.apiUrl)
+      ? { apiUrl: imageApiUrl, model: imageModel, apiKey: profile.apiKey || '' }
+      : null,
+  };
+}
+
+function migrateProfiles(profiles) {
+  const migrated = [];
+  if (!Array.isArray(profiles)) return migrated;
+
+  profiles.forEach((profile) => {
+    if (!profile || typeof profile !== 'object') return;
+    try {
+      const normalized = normalizeProfile(profile);
+      const legacyImage = normalized._legacyImage;
+      delete normalized._legacyImage;
+      migrated.push(normalized);
+      if (legacyImage?.apiUrl && legacyImage?.model) {
+        const exists = migrated.some(
+          (item) => item.type === 'image' && item.apiUrl === legacyImage.apiUrl && item.model === legacyImage.model
+        );
+        if (!exists) {
+          migrated.push({
+            id: createId('profile'),
+            name: `${legacyImage.model} · ${t('profile.type.image')}`,
+            type: 'image',
+            apiUrl: legacyImage.apiUrl,
+            apiKey: legacyImage.apiKey || normalized.apiKey || '',
+            model: legacyImage.model,
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('Skipped invalid profile while migrating:', error);
+    }
+  });
+  return migrated;
+}
+
+function getProfileLabel(profile) {
+  if (profile?.name?.trim()) return profile.name.trim();
+  return profile?.model || (getCurrentLanguage() === 'zh' ? '未命名模型' : 'Unnamed Model');
+}
+
+function getProfileMode(profile) {
+  return profile?.type === 'image' ? 'image' : 'chat';
+}
+
+function isChatProfile(profile) {
+  return getProfileMode(profile) === 'chat';
+}
+
+function isImageProfile(profile) {
+  return getProfileMode(profile) === 'image';
+}
+
+function profileIsReady(profile) {
+  return Boolean(profile?.apiUrl && profile?.model);
+}
+
+function isImageFile(file) {
+  return file.type.startsWith('image/');
+}
+
+function isTextLikeFile(file) {
+  if (file.type.startsWith('text/')) return true;
+  return /\.(txt|md|markdown|json|csv|js|ts|jsx|tsx|html|css|scss|sass|xml|yml|yaml|py|java|go|rs|php|sh|sql)$/i.test(file.name);
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result || '');
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
+    reader.readAsText(file);
+  });
+}
+
+async function createAttachmentFromFile(file) {
+  if (!file || !file.size) {
+    throw new Error(t('message.attachEmpty'));
+  }
+
+  const base = {
+    id: createId('att'),
+    name: file.name,
+    type: file.type || 'application/octet-stream',
+    size: file.size,
+  };
+
+  if (isImageFile(file)) {
+    if (file.size > MAX_IMAGE_SIZE) {
+      throw new Error(t('message.attachImageTooLarge'));
+    }
+    return {
+      ...base,
+      kind: 'image',
+      dataUrl: await readFileAsDataURL(file),
+    };
+  }
+
+  if (isTextLikeFile(file)) {
+    if (file.size > MAX_TEXT_FILE_SIZE) {
+      throw new Error(t('message.attachTextTooLarge'));
+    }
+    const textContent = await readFileAsText(file);
+    return {
+      ...base,
+      kind: 'text',
+      textContent,
+      previewText: textContent.slice(0, INLINE_TEXT_PREVIEW_LIMIT),
+      truncated: textContent.length > INLINE_TEXT_PREVIEW_LIMIT,
+    };
+  }
+
+  return {
+    ...base,
+    kind: 'binary',
+  };
+}
+
+function getAttachmentSummary(attachment) {
+  const typeLabel = attachment.kind === 'image'
+    ? t('message.imageLabel')
+    : t('message.fileLabel');
+  return `${typeLabel} · ${attachment.type || 'application/octet-stream'} · ${formatFileSize(attachment.size)}`;
+}
+
+function renderDraftAttachments() {
+  elements.attachmentList.innerHTML = '';
+  elements.attachmentList.classList.toggle('has-items', draftAttachments.length > 0);
+
+  draftAttachments.forEach((attachment) => {
+    const chip = document.createElement('div');
+    chip.className = 'attachment-chip';
+
+    if (attachment.kind === 'image' && attachment.dataUrl) {
+      const preview = document.createElement('img');
+      preview.className = 'attachment-chip-preview';
+      preview.src = attachment.dataUrl;
+      preview.alt = attachment.name;
+      chip.appendChild(preview);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'attachment-chip-meta';
+    const title = document.createElement('strong');
+    title.textContent = attachment.name;
+    const summary = document.createElement('span');
+    summary.textContent = getAttachmentSummary(attachment);
+    meta.append(title, summary);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'attachment-chip-remove';
+    removeBtn.type = 'button';
+    removeBtn.title = t('message.removeAttachment');
+    removeBtn.setAttribute('aria-label', t('message.removeAttachment'));
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => {
+      draftAttachments = draftAttachments.filter((item) => item.id !== attachment.id);
+      renderDraftAttachments();
+    });
+
+    chip.append(meta, removeBtn);
+    elements.attachmentList.appendChild(chip);
+  });
+
+  if (draftAttachments.length > 0) {
+    const note = document.createElement('div');
+    note.className = 'composer-note';
+    note.textContent = t('main.attachmentHint');
+    elements.attachmentList.appendChild(note);
+  }
+}
+
+function updateComposerForProfile() {
+  const profile = getActiveProfile();
+  const mode = profile ? getProfileMode(profile) : 'chat';
+  if (elements.sendBtn) {
+    const sendLabel = mode === 'image' ? t('main.generate') : t('main.send');
+    elements.sendBtn.title = sendLabel;
+    elements.sendBtn.setAttribute('aria-label', sendLabel);
+  }
+  if (elements.messageInput) {
+    elements.messageInput.placeholder = mode === 'image'
+      ? t('main.imagePlaceholder')
+      : t('main.input.placeholder');
+  }
+}
+
+function updateProfileFormHints() {
+  if (!elements.profileType || !elements.profileUrl) return;
+  const isImage = elements.profileType.value === 'image';
+  elements.profileUrl.placeholder = isImage
+    ? t('settings.imageApiUrl.placeholder')
+    : t('settings.apiUrl.placeholder');
+}
+
+function buildFallbackTopicName(text, attachments) {
+  const seed = (text || attachments.map((attachment) => attachment.name).join(' ')).trim();
+  if (!seed) {
+    return t('topic.generateName');
+  }
+  return seed.slice(0, 20);
+}
+
+function clearDraftAttachments() {
+  draftAttachments = [];
+  if (elements.attachmentInput) {
+    elements.attachmentInput.value = '';
+  }
+  renderDraftAttachments();
+}
+
+async function handleAttachmentSelection(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+
+  if (draftAttachments.length + files.length > MAX_ATTACHMENTS) {
+    alert(t('message.attachTooMany'));
+    if (elements.attachmentInput) {
+      elements.attachmentInput.value = '';
+    }
+    return;
+  }
+
+  for (const file of files) {
+    try {
+      const attachment = await createAttachmentFromFile(file);
+      draftAttachments.push(attachment);
+    } catch (error) {
+      alert(`${t('message.attachReadFailed')}${error.message}`);
+    }
+  }
+
+  if (elements.attachmentInput) {
+    elements.attachmentInput.value = '';
+  }
+  renderDraftAttachments();
+}
+
+function cloneAttachmentsForMessage(attachments) {
+  return attachments.map((attachment) => ({ ...attachment }));
 }
 
 function renderTopics() {
@@ -230,15 +965,34 @@ function renderTopics() {
   });
 }
 
+function formatMessageTime(timestamp) {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function getMessageAuthorName(role) {
+  if (role === 'user') return t('message.you');
+  if (role === 'assistant' || role === 'error') return t('message.assistant');
+  return role;
+}
+
 function renderTopicHeader() {
   const activeTopic = state.topics.find((topic) => topic.id === state.activeTopicId);
   if (!activeTopic) {
     elements.topicTitle.textContent = t('main.noTopic');
     elements.topicPromptPreview.textContent = t('main.noTopicHint');
+    if (elements.windowTitle) elements.windowTitle.textContent = 'Chatbutte';
     return;
   }
-  elements.topicTitle.textContent = activeTopic.name;
+  const displayName = activeTopic.name.startsWith('@') ? activeTopic.name : `@${activeTopic.name}`;
+  elements.topicTitle.textContent = displayName;
   elements.topicPromptPreview.textContent = activeTopic.prompt || (getCurrentLanguage() === 'zh' ? '未设置系统提示词' : 'No system prompt set');
+  if (elements.windowTitle) elements.windowTitle.textContent = displayName;
 }
 
 function renderMessages() {
@@ -252,16 +1006,133 @@ function renderMessages() {
   elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
-function createMessageBubble(message) {
-  const bubble = document.createElement('div');
+function openGeneratedImage(url) {
+  if (!url) return;
 
-  // 处理上下文截断标记
+  let previewUrl;
+  if (url.startsWith('data:') || url.startsWith('blob:')) {
+    const key = `chatbutte_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      sessionStorage.setItem(key, url);
+      previewUrl = `image-view.html?key=${encodeURIComponent(key)}`;
+    } catch (err) {
+      console.error('Failed to store image preview:', err);
+      return;
+    }
+  } else if (url.startsWith('http://') || url.startsWith('https://')) {
+    const proxySrc = `api/image-proxy?url=${encodeURIComponent(url)}`;
+    previewUrl = `image-view.html?src=${encodeURIComponent(proxySrc)}`;
+  } else {
+    return;
+  }
+
+  const previewWindow = window.open(previewUrl, '_blank');
+  if (!previewWindow) {
+    alert(t('message.popupBlocked'));
+    return;
+  }
+  previewWindow.opener = null;
+}
+
+function renderMessageAttachments(message, bubble) {
+  if (message.attachments?.length) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-attachments';
+
+    const imageAttachments = message.attachments.filter((attachment) => attachment.kind === 'image' && attachment.dataUrl);
+    const fileAttachments = message.attachments.filter((attachment) => attachment.kind !== 'image');
+
+    if (imageAttachments.length) {
+      const imageGrid = document.createElement('div');
+      imageGrid.className = 'message-attachment-grid';
+      imageAttachments.forEach((attachment) => {
+        const item = document.createElement('a');
+        item.className = 'message-attachment-image';
+        item.href = attachment.dataUrl;
+        item.target = '_blank';
+        item.rel = 'noreferrer';
+
+        const image = document.createElement('img');
+        image.src = attachment.dataUrl;
+        image.alt = attachment.name;
+
+        const caption = document.createElement('div');
+        caption.className = 'message-attachment-caption';
+        caption.textContent = attachment.name;
+
+        item.append(image, caption);
+        imageGrid.appendChild(item);
+      });
+      wrapper.appendChild(imageGrid);
+    }
+
+    if (fileAttachments.length) {
+      const fileList = document.createElement('div');
+      fileList.className = 'message-file-list';
+      fileAttachments.forEach((attachment) => {
+        const chip = document.createElement('div');
+        chip.className = 'message-file-chip';
+
+        const info = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = attachment.name;
+        const meta = document.createElement('span');
+        meta.textContent = getAttachmentSummary(attachment);
+        info.append(title, meta);
+
+        chip.appendChild(info);
+        fileList.appendChild(chip);
+      });
+      wrapper.appendChild(fileList);
+    }
+
+    bubble.appendChild(wrapper);
+  }
+
+  if (message.generatedImages?.length) {
+    const generatedWrapper = document.createElement('div');
+    generatedWrapper.className = 'message-generated-images';
+    const grid = document.createElement('div');
+    grid.className = 'generated-image-grid';
+
+    message.generatedImages.forEach((item, index) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'generated-image-card';
+      card.title = t('message.openImage');
+      card.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openGeneratedImage(item.url);
+      });
+
+      const image = document.createElement('img');
+      image.src = item.url;
+      image.alt = item.revisedPrompt || `${t('main.mode.image')} ${index + 1}`;
+      image.loading = 'lazy';
+      image.draggable = false;
+
+      const caption = document.createElement('div');
+      caption.className = 'generated-image-caption';
+      caption.textContent = item.revisedPrompt || item.name || `${t('main.mode.image')} ${index + 1}`;
+
+      card.append(image, caption);
+      grid.appendChild(card);
+    });
+
+    generatedWrapper.appendChild(grid);
+    bubble.appendChild(generatedWrapper);
+  }
+}
+
+function createMessageBubble(message) {
   if (message.role === 'context_cutoff') {
-    bubble.className = 'context-cutoff';
-    bubble.innerHTML = `
+    const cutoff = document.createElement('div');
+    cutoff.className = 'context-cutoff';
+    cutoff.innerHTML = `
       <div class="cutoff-line"></div>
       <div class="cutoff-label">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
           <line x1="9" y1="9" x2="15" y2="9"></line>
           <line x1="9" y1="15" x2="15" y2="15"></line>
@@ -269,18 +1140,46 @@ function createMessageBubble(message) {
         <span>${t('main.contextCleared')}</span>
       </div>
     `;
-    return bubble;
+    return cutoff;
   }
 
+  const row = document.createElement('div');
+  row.className = `message-row ${message.role}`;
+
+  const meta = document.createElement('div');
+  meta.className = 'message-meta';
+  const author = document.createElement('span');
+  author.textContent = getMessageAuthorName(message.role);
+  const time = document.createElement('span');
+  time.className = 'message-time';
+  time.textContent = formatMessageTime(message.time);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'message-copy-btn';
+  copyBtn.title = t('message.copy.title');
+  copyBtn.innerHTML = `
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+    <span>${t('message.copy')}</span>
+  `;
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(message.content || '');
+      copyBtn.classList.add('copied');
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  });
+  meta.append(author, time, copyBtn);
+
+  const bubble = document.createElement('div');
   bubble.className = `message ${message.role}`;
-  if (message.id) {
-    bubble.dataset.messageId = message.id;
-  }
-  if (message.role === 'error') {
-    bubble.classList.add('error');
-  }
+  if (message.id) bubble.dataset.messageId = message.id;
+  if (message.role === 'error') bubble.classList.add('error');
 
-  // 如果有思维链内容，添加思维链小气泡
   if (message.reasoning && typeof updateReasoningBubble === 'function') {
     const reasoningBubble = document.createElement('div');
     reasoningBubble.className = 'message-reasoning';
@@ -288,55 +1187,17 @@ function createMessageBubble(message) {
     bubble.appendChild(reasoningBubble);
   }
 
-  // 消息内容容器
-  const contentWrapper = document.createElement('div');
-  contentWrapper.className = 'message-content';
-  contentWrapper.innerHTML = renderMarkdown(message.content || '').trim();
-  bubble.appendChild(contentWrapper);
+  const shouldRenderContent = (message.content || '').trim() || (!message.attachments?.length && !message.generatedImages?.length);
+  if (shouldRenderContent) {
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'message-content';
+    contentWrapper.innerHTML = renderMarkdown(message.content || '').trim();
+    bubble.appendChild(contentWrapper);
+  }
 
-  // 添加复制按钮（error 消息也显示）
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'message-copy-btn';
-  copyBtn.innerHTML = `
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-    </svg>
-    <span>${t('message.copy')}</span>
-  `;
-  copyBtn.title = t('message.copy.title');
-
-  // 复制按钮点击事件
-  copyBtn.addEventListener('click', async () => {
-    const text = message.content || '';
-    try {
-      await navigator.clipboard.writeText(text);
-      // 显示复制成功状态
-      copyBtn.classList.add('copied');
-      copyBtn.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-        <span>${t('message.copied')}</span>
-      `;
-      // 2秒后恢复原状
-      setTimeout(() => {
-        copyBtn.classList.remove('copied');
-        copyBtn.innerHTML = `
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          <span>${t('message.copy')}</span>
-        `;
-      }, 2000);
-    } catch (err) {
-      console.error('Copy failed:', err);
-    }
-  });
-
-  bubble.appendChild(copyBtn);
-  return bubble;
+  renderMessageAttachments(message, bubble);
+  row.append(meta, bubble);
+  return row;
 }
 
 function renderMarkdown(content) {
@@ -358,43 +1219,19 @@ function renderProfiles() {
   state.profiles.forEach((profile) => {
     const option = document.createElement('option');
     option.value = profile.id;
-    option.textContent = profile.model;
+    const typeLabel = isImageProfile(profile) ? t('profile.type.image') : t('profile.type.chat');
+    option.textContent = `${getProfileLabel(profile)} · ${typeLabel}`;
     if (profile.id === state.activeProfileId) option.selected = true;
     elements.profileSelect.appendChild(option);
   });
 
-  elements.profileList.innerHTML = '';
-  state.profiles.forEach((profile) => {
-    const card = document.createElement('div');
-    card.className = 'card profile-item';
-
-    const info = document.createElement('div');
-    const name = document.createElement('div');
-    name.textContent = profile.model;
-    const meta = document.createElement('div');
-    meta.className = 'profile-meta';
-    meta.textContent = profile.apiUrl;
-    info.append(name, meta);
-
-    const actions = document.createElement('div');
-    const editBtn = document.createElement('button');
-    editBtn.className = 'ghost-btn';
-    editBtn.textContent = t('settings.edit');
-    editBtn.addEventListener('click', () => fillProfileForm(profile));
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'ghost-btn';
-    deleteBtn.textContent = t('settings.delete');
-    deleteBtn.addEventListener('click', () => removeProfile(profile.id));
-
-    actions.append(editBtn, deleteBtn);
-    card.append(info, actions);
-    elements.profileList.appendChild(card);
-  });
+  updateComposerForProfile();
 }
 
 function renderSettings() {
   elements.sendKeySelect.value = state.settings.sendKey;
+  updateComposerForProfile();
+  updateProfileFormHints();
   updateSendHint();
   renderGistConfig();
 }
@@ -405,22 +1242,31 @@ function updateUIText() {
 
   // 侧栏
   const sidebarClose = document.querySelector('.sidebar-close');
-  if (sidebarClose) sidebarClose.title = t('sidebar.close');
+  if (sidebarClose) {
+    sidebarClose.title = t('sidebar.close');
+    sidebarClose.setAttribute('aria-label', t('sidebar.close'));
+  }
 
   const brandSub = document.querySelector('.brand-sub');
   if (brandSub) brandSub.textContent = t('sidebar.brand');
 
   const sectionHeaderH3 = document.querySelector('.section-header h3');
-  if (sectionHeaderH3) sectionHeaderH3.textContent = t('sidebar.topics');
+  if (sectionHeaderH3) sectionHeaderH3.textContent = t('sidebar.chats');
 
-  if (elements.addTopicBtn) elements.addTopicBtn.title = t('sidebar.topics.add');
+  if (elements.addTopicBtn) {
+    elements.addTopicBtn.title = t('sidebar.topics.add');
+    elements.addTopicBtn.setAttribute('aria-label', t('sidebar.topics.add'));
+  }
   if (elements.settingsBtn) elements.settingsBtn.textContent = t('sidebar.settings');
 
   // 主界面
-  if (elements.messageInput) elements.messageInput.placeholder = t('main.input.placeholder');
-  if (elements.sendBtn) elements.sendBtn.textContent = t('main.send');
-  if (elements.clearChatBtn) elements.clearChatBtn.textContent = t('main.clearChat');
+  updateComposerForProfile();
+  if (elements.clearChatBtn) elements.clearChatBtn.textContent = t('main.clear');
   if (elements.newChatBtn) elements.newChatBtn.textContent = t('main.newChat');
+  if (elements.attachBtn) {
+    elements.attachBtn.title = t('main.attach');
+    elements.attachBtn.setAttribute('aria-label', t('main.attach'));
+  }
 
   const controlInlineLabel = document.querySelector('.control-inline label');
   if (controlInlineLabel) controlInlineLabel.textContent = t('main.model');
@@ -429,50 +1275,66 @@ function updateUIText() {
   const settingsTitle = document.querySelector('#settingsModal .modal-header h3');
   if (settingsTitle) settingsTitle.textContent = t('settings.title');
 
-  const settingsSections = document.querySelectorAll('#settingsModal .settings-section');
-  if (settingsSections[0]) {
-    const title = settingsSections[0].querySelector('.section-title');
-    if (title) title.textContent = t('settings.modelConfig');
-  }
-  if (settingsSections[1]) {
-    const title = settingsSections[1].querySelector('.section-title');
-    if (title) title.textContent = t('settings.sendConfig');
-  }
-  if (settingsSections[2]) {
-    const title = settingsSections[2].querySelector('.section-title');
-    if (title) title.textContent = t('settings.cloudSync');
-  }
-  if (settingsSections[3]) {
-    const title = settingsSections[3].querySelector('.section-title');
-    if (title) title.textContent = t('settings.dataManagement');
+  const settingsTabModels = document.getElementById('settingsTabModels');
+  const settingsTabAppearance = document.getElementById('settingsTabAppearance');
+  const settingsTabSend = document.getElementById('settingsTabSend');
+  const settingsTabSync = document.getElementById('settingsTabSync');
+  const settingsTabData = document.getElementById('settingsTabData');
+  if (settingsTabModels) settingsTabModels.textContent = t('settings.tab.models');
+  if (settingsTabAppearance) settingsTabAppearance.textContent = t('settings.tab.appearance');
+  if (settingsTabSend) settingsTabSend.textContent = t('settings.tab.send');
+  if (settingsTabSync) settingsTabSync.textContent = t('settings.tab.sync');
+  if (settingsTabData) settingsTabData.textContent = t('settings.tab.data');
+
+  const themeRowTitle = document.getElementById('themeRowTitle');
+  if (themeRowTitle) themeRowTitle.textContent = t('settings.theme');
+  const themeRowDesc = document.getElementById('themeRowDesc');
+  if (themeRowDesc) themeRowDesc.textContent = t('settings.theme.desc');
+  if (elements.themeSelect) {
+    const themeOptions = elements.themeSelect.querySelectorAll('option');
+    if (themeOptions[0]) themeOptions[0].textContent = t('settings.theme.system');
+    if (themeOptions[1]) themeOptions[1].textContent = t('settings.theme.light');
+    if (themeOptions[2]) themeOptions[2].textContent = t('settings.theme.dark');
   }
 
   // 模型配置表单
-  if (elements.profileUrl) {
-    elements.profileUrl.placeholder = t('settings.apiUrl.placeholder');
-    const label = document.querySelector('#profileUrl');
-    if (label && label.previousElementSibling) label.previousElementSibling.textContent = t('settings.apiUrl');
+  const profileTypeLabel = document.getElementById('profileTypeLabel');
+  if (profileTypeLabel) profileTypeLabel.textContent = t('settings.profileType');
+  if (elements.profileType) {
+    const typeOptions = elements.profileType.querySelectorAll('option');
+    if (typeOptions[0]) typeOptions[0].textContent = t('profile.type.chat');
+    if (typeOptions[1]) typeOptions[1].textContent = t('profile.type.image');
   }
-  if (elements.profileKey) {
-    elements.profileKey.placeholder = t('settings.apiKey.placeholder');
-    const label = document.querySelector('#profileKey');
-    if (label && label.previousElementSibling) label.previousElementSibling.textContent = t('settings.apiKey');
-  }
-  if (elements.profileModel) {
-    elements.profileModel.placeholder = t('settings.model.placeholder');
-    const label = document.querySelector('#profileModel');
-    if (label && label.previousElementSibling) label.previousElementSibling.textContent = t('settings.model');
-  }
+  const profileNameLabel = document.getElementById('profileNameLabel');
+  if (profileNameLabel) profileNameLabel.textContent = t('settings.profileName');
+  const profileNameDesc = document.getElementById('profileNameDesc');
+  if (profileNameDesc) profileNameDesc.textContent = t('settings.profileName.desc');
+  if (elements.profileName) elements.profileName.placeholder = t('settings.profileName.optional');
+  const profileKeyLabel = document.getElementById('profileKeyLabel');
+  if (profileKeyLabel) profileKeyLabel.textContent = t('settings.apiKey');
+  if (elements.profileKey) elements.profileKey.placeholder = t('settings.apiKey.placeholder');
+  const profileUrlLabel = document.getElementById('profileUrlLabel');
+  if (profileUrlLabel) profileUrlLabel.textContent = t('settings.apiUrl');
+  const profileModelLabel = document.getElementById('profileModelLabel');
+  if (profileModelLabel) profileModelLabel.textContent = t('settings.model');
+  if (elements.profileModel) elements.profileModel.placeholder = t('settings.model.placeholder');
+  const profileFormHint = document.getElementById('profileFormHint');
+  if (profileFormHint) profileFormHint.textContent = t('settings.profileFormHint');
+  updateProfileFormHints();
 
-  if (elements.profileCancelBtn) elements.profileCancelBtn.textContent = t('settings.cancel');
-  const profileSaveBtn = document.querySelector('#profileSaveBtn');
-  if (profileSaveBtn) profileSaveBtn.textContent = t('settings.save');
+  const settingsProfileSelectLabel = document.getElementById('settingsProfileSelectLabel');
+  if (settingsProfileSelectLabel) settingsProfileSelectLabel.textContent = t('settings.modelConfig');
+  if (elements.profileDeleteBtn) elements.profileDeleteBtn.textContent = t('settings.delete');
+  if (elements.settingsCancelBtn) elements.settingsCancelBtn.textContent = t('settings.cancel');
+  if (elements.settingsSaveBtn) elements.settingsSaveBtn.textContent = t('settings.saveAll');
 
   // 发送设置
-  const sendKeySelectLabel = document.querySelector('#sendKeySelect');
-  if (sendKeySelectLabel && sendKeySelectLabel.previousElementSibling) {
-    sendKeySelectLabel.previousElementSibling.textContent = t('settings.sendKey');
-  }
+  const sendKeyRowTitle = document.getElementById('sendKeyRowTitle');
+  if (sendKeyRowTitle) sendKeyRowTitle.textContent = t('settings.sendKey');
+  const sendKeyRowDesc = document.getElementById('sendKeyRowDesc');
+  if (sendKeyRowDesc) sendKeyRowDesc.textContent = t('settings.sendKey.desc');
+  const sendKeyHint = document.getElementById('sendKeyHint');
+  if (sendKeyHint) sendKeyHint.textContent = t('settings.sendKey.hint.mac');
 
   if (elements.sendKeySelect) {
     const sendKeyOptions = elements.sendKeySelect.querySelectorAll('option');
@@ -480,62 +1342,44 @@ function updateUIText() {
     if (sendKeyOptions[1]) sendKeyOptions[1].textContent = t('settings.sendKey.cmd');
     if (sendKeyOptions[2]) sendKeyOptions[2].textContent = t('settings.sendKey.ctrl');
     if (sendKeyOptions[3]) sendKeyOptions[3].textContent = t('settings.sendKey.alt');
-
-    const sendKeyParent = elements.sendKeySelect.parentElement;
-    if (sendKeyParent) {
-      const hint = sendKeyParent.querySelector('.muted');
-      if (hint) hint.textContent = t('settings.sendKey.hint.mac');
-    }
   }
 
   // 云同步
-  if (elements.gistToken) {
-    const label = elements.gistToken.previousElementSibling;
-    if (label) label.textContent = t('settings.gistToken');
-    elements.gistToken.placeholder = t('settings.gistToken.placeholder');
+  const gistTokenLabel = document.getElementById('gistTokenLabel');
+  if (gistTokenLabel) gistTokenLabel.textContent = t('settings.gistToken');
+  const gistTokenDesc = document.getElementById('gistTokenDesc');
+  if (gistTokenDesc) gistTokenDesc.textContent = t('settings.gistToken.hintShort');
+  if (elements.gistToken) elements.gistToken.placeholder = t('settings.gistToken.placeholder');
 
-    const parent = elements.gistToken.parentElement;
-    if (parent) {
-      const hint = parent.querySelector('.muted');
-      if (hint) hint.textContent = t('settings.gistToken.hint');
-    }
-  }
+  const gistIdLabel = document.getElementById('gistIdLabel');
+  if (gistIdLabel) gistIdLabel.textContent = t('settings.gistId');
+  const gistIdDesc = document.getElementById('gistIdDesc');
+  if (gistIdDesc) gistIdDesc.textContent = t('settings.gistId.hintShort');
+  if (elements.gistId) elements.gistId.placeholder = t('settings.gistId.placeholderShort');
 
-  if (elements.gistId) {
-    const label = elements.gistId.previousElementSibling;
-    if (label) label.textContent = t('settings.gistId');
-    elements.gistId.placeholder = t('settings.gistId.placeholder');
-
-    const parent = elements.gistId.parentElement;
-    if (parent) {
-      const hint = parent.querySelector('.muted');
-      if (hint) hint.textContent = t('settings.gistId.hint');
-    }
-  }
-
-  if (elements.uploadBtn) elements.uploadBtn.textContent = t('settings.upload');
-  if (elements.downloadBtn) elements.downloadBtn.textContent = t('settings.download');
-  if (elements.saveGistBtn) elements.saveGistBtn.textContent = t('settings.saveConfig');
+  const syncActionTitle = document.getElementById('syncActionTitle');
+  if (syncActionTitle) syncActionTitle.textContent = t('settings.syncAction');
+  if (elements.uploadBtn) elements.uploadBtn.textContent = t('settings.uploadShort');
+  if (elements.downloadBtn) elements.downloadBtn.textContent = t('settings.downloadShort');
 
   // 数据管理
-  if (elements.importBtn) elements.importBtn.textContent = t('settings.import');
-  if (elements.exportBtn) elements.exportBtn.textContent = t('settings.export');
+  const dataImportTitle = document.getElementById('dataImportTitle');
+  if (dataImportTitle) dataImportTitle.textContent = t('settings.import');
+  const dataImportDesc = document.getElementById('dataImportDesc');
+  if (dataImportDesc) dataImportDesc.textContent = t('settings.import.desc');
+  if (elements.importBtn) elements.importBtn.textContent = t('settings.importAction');
 
-  if (elements.importFileInput) {
-    const parent = elements.importFileInput.parentElement;
-    if (parent) {
-      const hint = parent.querySelector('.muted');
-      if (hint) hint.textContent = t('settings.export.hint');
-    }
-  }
+  const dataExportTitle = document.getElementById('dataExportTitle');
+  if (dataExportTitle) dataExportTitle.textContent = t('settings.export');
+  const dataExportDesc = document.getElementById('dataExportDesc');
+  if (dataExportDesc) dataExportDesc.textContent = t('settings.export.desc');
+  if (elements.exportBtn) elements.exportBtn.textContent = t('settings.exportAction');
 
-  if (elements.resetBtn) elements.resetBtn.textContent = t('settings.reset');
-
-  const resetBtnParent = document.querySelector('#resetBtn');
-  if (resetBtnParent && resetBtnParent.parentElement) {
-    const hint = resetBtnParent.parentElement.querySelector('.muted');
-    if (hint) hint.textContent = t('settings.reset.hint');
-  }
+  const dataResetTitle = document.getElementById('dataResetTitle');
+  if (dataResetTitle) dataResetTitle.textContent = t('settings.reset');
+  const dataResetHint = document.getElementById('dataResetHint');
+  if (dataResetHint) dataResetHint.textContent = t('settings.reset.desc');
+  if (elements.resetBtn) elements.resetBtn.textContent = t('settings.resetAction');
 
   // 话题模态框
   if (elements.topicModalTitle) elements.topicModalTitle.textContent = t('topic.add');
@@ -584,6 +1428,9 @@ function updateUIText() {
   const topicFormPrimaryBtn = document.querySelector('#topicForm .primary-btn');
   if (topicFormPrimaryBtn) topicFormPrimaryBtn.textContent = t('topic.save');
 
+  updateComposerForProfile();
+  renderDraftAttachments();
+
   // 更新语言切换器的激活状态
   elements.langOptions.forEach(btn => {
     btn.classList.remove('active');
@@ -618,7 +1465,6 @@ function render() {
   renderProfiles();
   renderSettings();
   updateUIText();
-  saveState();
 }
 
 function getActiveProfile() {
@@ -629,14 +1475,38 @@ function getActiveTopic() {
   return state.topics.find((topic) => topic.id === state.activeTopicId);
 }
 
-function pushMessage(topicId, role, content, id = null) {
+function pushMessage(topicId, role, content, meta = {}) {
   if (!state.messagesByTopic[topicId]) {
     state.messagesByTopic[topicId] = [];
   }
-  const message = { id: id || createId('msg'), role, content, time: Date.now() };
+  const options = typeof meta === 'string' ? { id: meta } : meta;
+  const message = {
+    id: options.id || createId('msg'),
+    role,
+    content,
+    time: Date.now(),
+  };
+  if (options.attachments?.length) {
+    message.attachments = cloneAttachmentsForMessage(options.attachments);
+  }
+  if (options.generatedImages?.length) {
+    message.generatedImages = options.generatedImages.map((item) => ({ ...item }));
+  }
+  if (options.mode) {
+    message.mode = options.mode;
+  }
   state.messagesByTopic[topicId].push(message);
   saveState();
   return message;
+}
+
+function patchMessage(topicId, messageId, patch) {
+  const list = state.messagesByTopic[topicId] || [];
+  const target = list.find((message) => message.id === messageId);
+  if (!target) return null;
+  Object.assign(target, patch);
+  saveState();
+  return target;
 }
 
 function updateMessageContent(topicId, messageId, content, reasoning = null) {
@@ -722,6 +1592,193 @@ function updateMessageContent(topicId, messageId, content, reasoning = null) {
   }
 }
 
+function buildAttachmentTextParts(attachments) {
+  const parts = [];
+  const textFiles = attachments.filter((attachment) => attachment.kind === 'text');
+  const binaryFiles = attachments.filter((attachment) => attachment.kind === 'binary');
+
+  textFiles.forEach((attachment) => {
+    const suffix = attachment.truncated ? '\n...[truncated]' : '';
+    parts.push({
+      type: 'text',
+      text: `[Attached file: ${attachment.name}]\n${attachment.previewText || attachment.textContent || ''}${suffix}`,
+    });
+  });
+
+  if (binaryFiles.length) {
+    const summary = binaryFiles
+      .map((attachment) => `- ${attachment.name} (${attachment.type || 'application/octet-stream'}, ${formatFileSize(attachment.size)})`)
+      .join('\n');
+    parts.push({
+      type: 'text',
+      text: `[Binary file metadata only]\n${summary}`,
+    });
+  }
+
+  return parts;
+}
+
+function buildApiMessage(message) {
+  if (message.role !== 'user' || !message.attachments?.length) {
+    return {
+      role: message.role,
+      content: message.content,
+    };
+  }
+
+  const parts = [];
+  const textParts = [];
+  if (message.content?.trim()) {
+    textParts.push(message.content);
+  }
+
+  let hasImage = false;
+  message.attachments.forEach((attachment) => {
+    if (attachment.kind === 'image' && attachment.dataUrl) {
+      hasImage = true;
+      parts.push({
+        type: 'image_url',
+        image_url: {
+          url: attachment.dataUrl,
+        },
+      });
+    }
+  });
+
+  const attachmentTextParts = buildAttachmentTextParts(message.attachments);
+  attachmentTextParts.forEach((part) => {
+    textParts.push(part.text);
+  });
+
+  if (!hasImage) {
+    return {
+      role: message.role,
+      content: textParts.join('\n\n') || t('main.attachmentHint'),
+    };
+  }
+
+  if (textParts.length) {
+    parts.unshift({
+      type: 'text',
+      text: textParts.join('\n\n'),
+    });
+  }
+
+  if (!parts.length) {
+    parts.push({
+      type: 'text',
+      text: t('main.attachmentHint'),
+    });
+  }
+
+  return {
+    role: message.role,
+    content: parts,
+  };
+}
+
+function buildTopicHistoryMessages(topicId, historyCount) {
+  const messages = state.messagesByTopic[topicId] || [];
+  const lastCutoffIndex = messages.findLastIndex((message) => message.role === 'context_cutoff');
+
+  let historyMessages = messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+
+  if (lastCutoffIndex !== -1) {
+    historyMessages = messages.slice(lastCutoffIndex + 1)
+      .filter((message) => message.role === 'user' || message.role === 'assistant');
+  }
+
+  return historyMessages
+    .slice(-(historyCount || 12))
+    .map((message) => buildApiMessage(message));
+}
+
+function buildImagePrompt(text, attachments) {
+  const sections = [];
+  if (text?.trim()) {
+    sections.push(text.trim());
+  }
+
+  const textAttachments = attachments.filter((attachment) => attachment.kind === 'text');
+  if (textAttachments.length) {
+    const textBlock = textAttachments
+      .map((attachment) => {
+        const suffix = attachment.truncated ? '\n...[truncated]' : '';
+        return `[Reference file: ${attachment.name}]\n${attachment.previewText || attachment.textContent || ''}${suffix}`;
+      })
+      .join('\n\n');
+    sections.push(textBlock);
+  }
+
+  const imageAttachments = attachments.filter((attachment) => attachment.kind === 'image');
+  if (imageAttachments.length) {
+    const summary = imageAttachments
+      .map((attachment) => `- ${attachment.name} (${formatFileSize(attachment.size)})`)
+      .join('\n');
+    sections.push(`[Reference image metadata only]\n${summary}`);
+  }
+
+  const binaryAttachments = attachments.filter((attachment) => attachment.kind === 'binary');
+  if (binaryAttachments.length) {
+    const summary = binaryAttachments
+      .map((attachment) => `- ${attachment.name} (${attachment.type || 'application/octet-stream'}, ${formatFileSize(attachment.size)})`)
+      .join('\n');
+    sections.push(`[Reference metadata]\n${summary}`);
+  }
+
+  return sections.join('\n\n').trim();
+}
+
+async function generateImages(profile, prompt) {
+  if (!profileIsReady(profile) || !isImageProfile(profile)) {
+    throw new Error(t('message.imageEndpointMissing'));
+  }
+
+  const response = await fetch('api/image-generate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      target_url: profile.apiUrl,
+      api_key: profile.apiKey || '',
+      model: profile.model,
+      prompt,
+      size: '1024x1024',
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.message || `${t('error.requestFailed')}${response.status}`;
+    throw new Error(message);
+  }
+
+  const images = (data.data || []).map((item, index) => {
+    if (item.url) {
+      return {
+        id: createId(`img${index}`),
+        url: item.url,
+        revisedPrompt: item.revised_prompt || '',
+      };
+    }
+    if (item.b64_json) {
+      return {
+        id: createId(`img${index}`),
+        url: `data:image/png;base64,${item.b64_json}`,
+        revisedPrompt: item.revised_prompt || '',
+      };
+    }
+    return null;
+  }).filter(Boolean);
+
+  if (!images.length) {
+    throw new Error(t('error.imageResponse'));
+  }
+
+  return images;
+}
+
 async function generateTopicName(text, profile) {
   const payload = {
     model: profile.model,
@@ -760,112 +1817,102 @@ async function generateTopicName(text, profile) {
 }
 
 async function sendMessage() {
+  if (sendInFlight) return;
+
   const text = elements.messageInput.value.trim();
-  let activeTopic = getActiveTopic();
-  if (!text) return;
+  const attachments = cloneAttachmentsForMessage(draftAttachments);
+  if (!text && !attachments.length) return;
   const profile = getActiveProfile();
   if (!profile) {
     alert(t('message.noModel'));
     return;
   }
-
-  // 如果没有激活话题，自动创建一个
-  if (!activeTopic) {
-    try {
-      const topicName = await generateTopicName(text, profile);
-      const topicId = createId('topic');
-      state.topics.push({
-        id: topicId,
-        name: topicName,
-        prompt: '',
-        historyCount: 12,
-        temperature: 0.7,
-        activeProfileId: state.activeProfileId
-      });
-      state.activeTopicId = topicId;
-      saveState();
-      render();
-      activeTopic = getActiveTopic();
-    } catch (error) {
-      // 如果生成话题名称失败，使用默认名称
-      const topicId = createId('topic');
-      state.topics.push({
-        id: topicId,
-        name: t('topic.generateName'),
-        prompt: '',
-        historyCount: 12,
-        temperature: 0.7,
-        activeProfileId: state.activeProfileId
-      });
-      state.activeTopicId = topicId;
-      saveState();
-      render();
-      activeTopic = getActiveTopic();
-    }
+  const profileMode = getProfileMode(profile);
+  if (!profileIsReady(profile)) {
+    alert(t('profile.incomplete'));
+    return;
   }
 
-  elements.messageInput.value = '';
-  pushMessage(activeTopic.id, 'user', text);
-  renderMessages();
-
-  const messages = state.messagesByTopic[activeTopic.id] || [];
-
-  // 找到最后一个截断标记的位置
-  const lastCutoffIndex = messages.findLastIndex(m => m.role === 'context_cutoff');
-
-  // 获取历史消息，只保留截断线之后的
-  let historyMessages = messages.filter((message) => message.role === 'user' || message.role === 'assistant');
-
-  if (lastCutoffIndex !== -1) {
-    // 计算截断线之后有多少条有效消息
-    const messagesAfterCutoff = messages.slice(lastCutoffIndex + 1)
-      .filter((message) => message.role === 'user' || message.role === 'assistant');
-    historyMessages = messagesAfterCutoff;
+  const imagePrompt = profileMode === 'image' ? buildImagePrompt(text, attachments) : '';
+  if (profileMode === 'image' && !imagePrompt) {
+    alert(t('message.noImagePrompt'));
+    return;
   }
 
-  // 应用 historyCount 限制
-  const recentMessages = historyMessages.slice(-(activeTopic.historyCount || 12)).map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
-
-  const assistantMessage = pushMessage(activeTopic.id, 'assistant', '');
-  renderMessages();
-
-  const payload = {
-    model: profile.model,
-    messages: [
-      ...(activeTopic.prompt ? [{ role: 'system', content: activeTopic.prompt }] : []),
-      ...recentMessages,
-    ],
-    temperature: Number(activeTopic.temperature || 0.7),
-    stream: true,
-  };
-
+  sendInFlight = true;
   try {
-    const result = await streamChatCompletion(profile, payload, (_delta, full, reasoning) => {
-      updateMessageContent(activeTopic.id, assistantMessage.id, full, reasoning);
-    });
+    const topicSeedText = text || attachments.map((attachment) => attachment.name).join(', ');
+    const activeTopic = ensureTopicForSend(topicSeedText, attachments);
+    void refineTopicName(activeTopic.id, topicSeedText, profile);
 
-    // 处理返回值（可能是字符串或对象）
-    if (!result) {
-      updateMessageContent(activeTopic.id, assistantMessage.id, t('error.emptyResponse'));
-    } else if (typeof result === 'object') {
-      // 对象格式：{ content, reasoning } - 有思维链
-      updateMessageContent(activeTopic.id, assistantMessage.id, result.content, result.reasoning);
-    } else if (typeof result === 'string') {
-      // 字符串格式 - 没有思维链，但在流式响应中已经更新过了，这里只需要确认
-      // 通常不需要做任何事，因为流式回调已经处理了
-    }
-  } catch (error) {
-    updateMessageContent(activeTopic.id, assistantMessage.id, `${t('message.error')}${error.message}`);
-    const target = state.messagesByTopic[activeTopic.id].find(
-      (message) => message.id === assistantMessage.id
-    );
-    if (target) {
-      target.role = 'error';
-    }
+    elements.messageInput.value = '';
+    clearDraftAttachments();
+    pushMessage(activeTopic.id, 'user', text, {
+      attachments,
+      mode: profileMode,
+    });
     renderMessages();
+
+    if (profileMode === 'image') {
+      const assistantMessage = pushMessage(activeTopic.id, 'assistant', t('message.generatingImage'), {
+        mode: 'image',
+      });
+      renderMessages();
+
+      try {
+        const images = await generateImages(profile, imagePrompt);
+        patchMessage(activeTopic.id, assistantMessage.id, {
+          content: t('message.imageGenerated'),
+          generatedImages: images,
+        });
+      } catch (error) {
+        patchMessage(activeTopic.id, assistantMessage.id, {
+          role: 'error',
+          content: `${t('message.error')}${error.message}`,
+        });
+      }
+
+      renderMessages();
+      return;
+    }
+
+    const recentMessages = buildTopicHistoryMessages(activeTopic.id, activeTopic.historyCount || 12);
+
+    const assistantMessage = pushMessage(activeTopic.id, 'assistant', '');
+    renderMessages();
+
+    const payload = {
+      model: profile.model,
+      messages: [
+        ...(activeTopic.prompt ? [{ role: 'system', content: activeTopic.prompt }] : []),
+        ...recentMessages,
+      ],
+      temperature: Number(activeTopic.temperature || 0.7),
+      stream: true,
+    };
+
+    try {
+      const result = await streamChatCompletion(profile, payload, (_delta, full, reasoning) => {
+        updateMessageContent(activeTopic.id, assistantMessage.id, full, reasoning);
+      });
+
+      if (!result) {
+        updateMessageContent(activeTopic.id, assistantMessage.id, t('error.emptyResponse'));
+      } else if (typeof result === 'object') {
+        updateMessageContent(activeTopic.id, assistantMessage.id, result.content, result.reasoning);
+      }
+    } catch (error) {
+      updateMessageContent(activeTopic.id, assistantMessage.id, `${t('message.error')}${error.message}`);
+      const target = state.messagesByTopic[activeTopic.id].find(
+        (message) => message.id === assistantMessage.id
+      );
+      if (target) {
+        target.role = 'error';
+      }
+      renderMessages();
+    }
+  } finally {
+    sendInFlight = false;
   }
 }
 
@@ -1045,34 +2092,7 @@ function removeTopic(id) {
   render();
 }
 
-function fillProfileForm(profile) {
-  elements.profileId.value = profile.id;
-  // profileName 不存在于 HTML 中，注释掉
-  // elements.profileName.value = profile.name;
-  elements.profileUrl.value = profile.apiUrl;
-  elements.profileKey.value = profile.apiKey || '';
-  elements.profileModel.value = profile.model;
-  openModal(elements.settingsModal);
-}
 
-function removeProfile(id) {
-  if (!confirm(t('profile.deleteConfirm'))) return;
-  state.profiles = state.profiles.filter((profile) => profile.id !== id);
-  if (state.activeProfileId === id) {
-    state.activeProfileId = state.profiles.length ? state.profiles[0].id : null;
-  }
-  saveState();
-  render();
-}
-
-function resetProfileForm() {
-  elements.profileId.value = '';
-  // profileName 不存在于 HTML 中，注释掉
-  // elements.profileName.value = '';
-  elements.profileUrl.value = '';
-  elements.profileKey.value = '';
-  elements.profileModel.value = '';
-}
 
 function handleTopicSubmit(event) {
   event.preventDefault();
@@ -1094,31 +2114,8 @@ function handleTopicSubmit(event) {
     });
   }
   state.activeTopicId = id;
-  saveState();
+  saveState({ immediate: true });
   closeModal(elements.topicModal);
-  render();
-}
-
-function handleProfileSubmit(event) {
-  event.preventDefault();
-  const id = elements.profileId.value || createId('profile');
-  const modelValue = elements.profileModel.value.trim();
-  const data = {
-    id,
-    name: modelValue, // 使用 model 作为 name
-    apiUrl: elements.profileUrl.value.trim(),
-    apiKey: elements.profileKey.value.trim(),
-    model: modelValue,
-  };
-  const existing = state.profiles.find((profile) => profile.id === id);
-  if (existing) {
-    Object.assign(existing, data);
-  } else {
-    state.profiles.push(data);
-  }
-  state.activeProfileId = id;
-  resetProfileForm();
-  saveState();
   render();
 }
 
@@ -1157,6 +2154,15 @@ function handleKeydown(event) {
 function initListeners() {
   elements.sendBtn.addEventListener('click', sendMessage);
   elements.messageInput.addEventListener('keydown', handleKeydown);
+  elements.attachBtn.addEventListener('click', () => {
+    elements.attachmentInput.click();
+  });
+  elements.attachmentInput.addEventListener('change', (event) => {
+    handleAttachmentSelection(event.target.files);
+  });
+  if (elements.profileType) {
+    elements.profileType.addEventListener('change', updateProfileFormHints);
+  }
 
   elements.profileSelect.addEventListener('change', (event) => {
     const newProfileId = event.target.value || null;
@@ -1172,6 +2178,7 @@ function initListeners() {
 
     saveState();
     renderProfiles();
+    updateComposerForProfile();
   });
 
   elements.clearChatBtn.addEventListener('click', () => {
@@ -1218,15 +2225,27 @@ function initListeners() {
     elements.topicTemperatureValue.textContent = Number(event.target.value).toFixed(2);
   });
 
-  elements.settingsBtn.addEventListener('click', () => openModal(elements.settingsModal));
-  elements.closeSettingsBtn.addEventListener('click', () => closeModal(elements.settingsModal));
-  elements.profileForm.addEventListener('submit', handleProfileSubmit);
-  elements.profileCancelBtn.addEventListener('click', resetProfileForm);
+  document.querySelectorAll('.settings-tab').forEach((tab) => {
+    tab.addEventListener('click', () => setSettingsTab(tab.dataset.tab));
+  });
 
-  elements.sendKeySelect.addEventListener('change', (event) => {
-    state.settings.sendKey = event.target.value;
+  elements.settingsBtn.addEventListener('click', () => openSettingsModal());
+  elements.closeSettingsBtn.addEventListener('click', cancelSettingsModal);
+  if (elements.settingsCancelBtn) {
+    elements.settingsCancelBtn.addEventListener('click', cancelSettingsModal);
+  }
+  if (elements.settingsSaveBtn) {
+    elements.settingsSaveBtn.addEventListener('click', saveAllSettings);
+  }
+  if (elements.settingsProfileSelect) {
+    elements.settingsProfileSelect.addEventListener('change', onSettingsProfileSelectChange);
+  }
+  if (elements.profileDeleteBtn) {
+    elements.profileDeleteBtn.addEventListener('click', deleteSettingsProfileDraft);
+  }
+
+  elements.sendKeySelect.addEventListener('change', () => {
     updateSendHint();
-    saveState();
   });
 
   // 导出数据按钮
@@ -1253,8 +2272,6 @@ function initListeners() {
   // Gist 同步按钮
   elements.uploadBtn.addEventListener('click', uploadToCloud);
   elements.downloadBtn.addEventListener('click', downloadFromCloud);
-  elements.saveGistBtn.addEventListener('click', saveGistConfig);
-
   elements.menuToggle.addEventListener('click', () => {
     elements.sidebar.classList.add('open');
     elements.sidebarOverlay.classList.add('open');
@@ -1296,7 +2313,7 @@ function initListeners() {
 
   window.addEventListener('click', (event) => {
     if (event.target === elements.settingsModal) {
-      closeModal(elements.settingsModal);
+      cancelSettingsModal();
     }
     if (event.target === elements.topicModal) {
       closeModal(elements.topicModal);
@@ -1306,8 +2323,25 @@ function initListeners() {
 
 function boot() {
   ensureActiveSelections();
+  applyTheme();
+  setupThemeListener();
   render();
+  renderDraftAttachments();
+  updateComposerForProfile();
   initListeners();
+
+  if (!isStorageWritable()) {
+    window.setTimeout(() => alert(t('error.storageUnavailable')), 0);
+  }
+
+  window.addEventListener('beforeunload', () => {
+    flushSaveState();
+  });
+}
+
+function initApp() {
+  hydrateState();
+  boot();
 }
 
 // 导出数据为 JSON 文件
@@ -1346,7 +2380,12 @@ function importData(file) {
         messagesByTopic: imported.messagesByTopic || {},
       };
 
-      saveState();
+      if (!VALID_THEMES.has(state.settings.theme)) {
+        state.settings.theme = 'system';
+      }
+      applyTheme();
+      setupThemeListener();
+      saveState({ immediate: true });
       render();
       alert(t('import.success'));
     } catch (error) {
@@ -1365,7 +2404,11 @@ function resetData() {
     return;
   }
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_BACKUP_KEY);
   state = structuredClone(defaultState);
+  applyTheme();
+  setupThemeListener();
+  saveState({ immediate: true });
   render();
   alert(t('reset.success'));
 }
@@ -1629,12 +2672,18 @@ async function downloadFromCloud() {
     state = {
       ...structuredClone(defaultState),
       ...remoteData,
+      settings: { ...structuredClone(defaultState.settings), ...(remoteData.settings || {}) },
       gistToken,
       gistId,
       lastSyncTime: Date.now(),
       lastSyncHash: remoteHash,
     };
 
+    if (!VALID_THEMES.has(state.settings.theme)) {
+      state.settings.theme = 'system';
+    }
+    applyTheme();
+    setupThemeListener();
     saveState();
     render();
 
@@ -1643,14 +2692,6 @@ async function downloadFromCloud() {
     updateSyncStatus(t('sync.downloadFailed') + error.message, 'error');
     console.error('Download failed:', error);
   }
-}
-
-// 保存 Gist 配置
-function saveGistConfig() {
-  state.gistToken = elements.gistToken.value.trim();
-  state.gistId = elements.gistId.value.trim();
-  saveState();
-  updateSyncStatus(t('sync.configSaved'), 'success');
 }
 
 // 渲染 Gist 配置
@@ -1665,4 +2706,4 @@ function renderGistConfig() {
   }
 }
 
-boot();
+initApp();

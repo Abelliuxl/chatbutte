@@ -30,12 +30,15 @@ function updateReasoningBubble(bubble, reasoning, isLoading = false) {
     }
     bubble.classList.remove('loading');
 
-    // 获取预览文本（最多一行）
-    const previewText = reasoning.slice(0, 50) + (reasoning.length > 50 ? '...' : '');
-    bubble.innerHTML = `
-      <span class="reasoning-text">${previewText}</span>
-      <span class="reasoning-expand">📖</span>
-    `;
-    bubble.title = reasoning; // hover 时显示完整内容
+    bubble.replaceChildren();
+    const textSpan = document.createElement('span');
+    textSpan.className = 'reasoning-text';
+    textSpan.textContent = reasoning.replace(/\s+/g, ' ').trim();
+    const expandSpan = document.createElement('span');
+    expandSpan.className = 'reasoning-expand';
+    expandSpan.textContent = '…';
+    expandSpan.setAttribute('aria-hidden', 'true');
+    bubble.append(textSpan, expandSpan);
+    bubble.title = reasoning;
   }
 }

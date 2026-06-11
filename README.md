@@ -51,11 +51,26 @@ You can directly access the online demo version:
 #### Local Development
 
 ```bash
-# Use any static server
-python -m http.server 8000
-# or
-npx serve .
+# Start the built-in server (includes image proxy support)
+python3 server.py --port 8000
 ```
+
+For providers such as Alibaba Bailian `z-image-turbo`, image generation must go through the built-in proxy route instead of a pure static file server.
+
+If your local Python reports SSL certificate verification errors on macOS, you can use this for local testing only:
+
+```bash
+CHATBUTTE_INSECURE_SSL=1 python3 server.py --port 8000
+```
+
+#### Deploy To `server94`
+
+```bash
+./scripts/deploy-server94.sh
+```
+
+This deploys the current project directory to `/home/ubuntu/chatbutte` on `server94`,
+then restarts the `chatbutte` supervisor service.
 
 ### Configuration
 
@@ -130,11 +145,26 @@ MIT License
 #### 本地开发
 
 ```bash
-# 使用任意静态服务器
-python -m http.server 8000
-# 或
-npx serve .
+# 启动内置服务（包含图片代理）
+python3 server.py --port 8000
 ```
+
+对于阿里百炼 `z-image-turbo` 这类接口，图片生成必须通过内置代理转发，不能只用纯静态文件服务器。
+
+如果你本机的 Python 在 macOS 下出现 SSL 证书校验错误，可仅在本地测试时这样启动：
+
+```bash
+CHATBUTTE_INSECURE_SSL=1 python3 server.py --port 8000
+```
+
+#### 部署到 `server94`
+
+```bash
+./scripts/deploy-server94.sh
+```
+
+该脚本会把当前项目目录同步到 `server94` 的 `/home/ubuntu/chatbutte`，
+然后重启 `chatbutte` 的 supervisor 服务。
 
 ### 配置说明
 

@@ -58,6 +58,15 @@ desktop.ini
 logs
 *.log
 
+# Python
+__pycache__/
+*.py[cod]
+
+# Local/runtime state
+data/
+
+
+
 # Runtime data
 pids
 *.pid
