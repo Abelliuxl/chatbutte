@@ -35,7 +35,7 @@ This is a personal workspace with an optional shared gateway password, not a mul
 ## Nginx subpath example
 
 ```nginx
-location = /chatbutte { return 308 /chatbutte/; }
+location = /chatbutte { absolute_redirect off; return 308 /chatbutte/; }
 location /chatbutte/ {
     client_max_body_size 32m;
     proxy_pass http://127.0.0.1:8080/;
@@ -51,7 +51,7 @@ location /chatbutte/ {
 }
 ```
 
-Use a canonical trailing slash so relative assets/API requests resolve under the intended path. Hashed assets are immutable; the HTML shell and manifest revalidate. The server also accepts `/chatbutte/api/*` directly for subpath testing.
+Use a canonical trailing slash so relative assets/API requests resolve under the intended path. `absolute_redirect off` prevents an internal TLS proxy/listen port from leaking into the redirect Location. Hashed assets are immutable; the HTML shell and manifest revalidate. The server also accepts `/chatbutte/api/*` directly for subpath testing.
 
 ## server94 release layout
 
