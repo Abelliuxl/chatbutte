@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -461,7 +462,10 @@ export function createServer({ request = fetch } = {}) {
     }
   });
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
   const host = process.env.HOST || '127.0.0.1',
     port = Number(process.env.PORT || 8080);
   if (!password && process.env.CHATBUTTE_ORIGINS && process.env.CHATBUTTE_PUBLIC !== '1')
